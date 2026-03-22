@@ -1,110 +1,109 @@
-# Backend TODO
+# TODO
 
-This file tracks what is still pending on backend after current implementation.
+This file tracks remaining implementation work after the current integrated baseline.
 
-## P0 - Must Complete Before Production
+## Already Implemented (Snapshot)
 
-1. Payments integration (real)
-- Implement M-Pesa Daraja service (STK push, status polling, manual confirmation audit).
-- Implement card authorization integration interface (internet-required path).
-- Persist payment reference fields on `sales` (transaction code, provider status, manual-confirm metadata).
+- Unified SQLite migrations and project-local DB default (`./myduka.sqlite`)
+- Unified seeding (settings, staff, categories, suppliers, products, purchase orders, sales)
+- Username/password staff auth
+- POS cash checkout
+- M-Pesa via Paystack:
+  - initiate charge
+  - verify charge
+  - auto polling in POS
+  - customer-already-paid flow (recent payments + manual reference)
+  - one-time payment reference binding (`sale_payments`)
+- Dashboard summary + chart cards
+- Core backend tests for auth/sales/seed/sync/payments
+
+## P0 - Must Finish Before Production
+
+1. Payment completion hardening
+- Add explicit persisted payment status timeline (`initiated`, `pending`, `verified`, `failed`, `timeout`, `manual_verified`).
+- Store more provider metadata on `sale_payments` (masked phone, provider tx id, verified_at, raw gateway response hash).
+- Add strict business validations:
+  - currency must be `KES`
+  - amount must equal sale total
+  - stale payment rejection window (e.g. >15 min unless manager override)
 - Acceptance:
-  - successful/failed/timeout payment states are recorded and test-covered
-  - cashier fallback path is deterministic for no-internet scenarios
+  - no payment can finalize sale without deterministic verification path
+  - failed/pending/timeout states are auditable
 
-2. Sync protocol hardening
-- Add auth/signing for `/sync/push` and `/sync/pull` (device token or HMAC).
-- Add strict payload validation and size limits.
-- Add per-table conflict rules for `updated_at`/soft-delete precedence in mutation apply.
+2. Card payment provider path
+- Implement real card provider adapter interface and first provider integration.
+- Add online/offline UX states and retry guidance.
 - Acceptance:
-  - unauthorized sync requests are rejected
-  - malformed mutation batches are rejected safely
-  - conflict behavior is deterministic and documented
+  - card payments have parity with M-Pesa traceability
 
-3. Device registration and approval
-- Implement join-code generation/expiry + admin approval workflow.
-- Persist approved device registry and revoke flow.
+3. Sync auth + device trust
+- Enforce sync auth (device token/HMAC) for `/sync/push` and `/sync/pull`.
+- Enforce approved device list at sync boundary.
 - Acceptance:
-  - unapproved device cannot sync
-  - revoke immediately blocks push/pull
+  - untrusted device cannot push/pull
 
-4. Data safety and backup
-- Add scheduled local backups (e.g., hourly + daily rotation).
-- Add restore command and restore verification.
-- Add DB integrity check on startup and backup job.
+4. Backup + restore operations
+- Scheduled backup job (hourly + daily retention)
+- Restore command + verification flow
+- Startup DB integrity check and corruption handling
 - Acceptance:
-  - restore drill from backup succeeds on clean machine
-  - documented RTO/RPO target is met
+  - restore drill succeeds from latest backup
 
-## P1 - Needed For Full v1 Feature Scope
+## P1 - Complete v1 Business Surface
 
-1. Supplier + purchase order domain logic
-- CRUD endpoints/methods for suppliers.
-- Purchase order create/list/receive flow.
-- Stock updates on PO receive.
-- Acceptance:
-  - receiving PO writes stock transactions and recomputes stock correctly
+1. Supplier and purchase order workflows
+- Supplier CRUD UI + backend methods
+- PO create/list/receive lifecycle
+- Receiving PO writes stock transactions and updates derived stock
 
-2. Reporting and exports
-- Implement report services:
-  - daily summary
-  - date-range sales
-  - staff performance
-  - stock valuation
-  - slow movers
-- Implement CSV/PDF/Excel generation services and backend methods.
-- Acceptance:
-  - exports open correctly and values match DB totals
+2. Reports + exports
+- Daily, date-range, staff performance, stock valuation, slow movers
+- CSV/PDF/Excel exports with test coverage
 
 3. Sales controls
-- Add void/refund workflow (admin-authorized).
-- Write compensating stock/payment transactions and audit trail.
-- Acceptance:
-  - void/refund preserves immutable history and consistent stock totals
+- Void/refund (admin authorized)
+- Compensating payment + stock transactions
+- Immutable audit trail
 
-4. Better sync observability
-- Add sync metrics table (last run, latency, error counters).
-- Add diagnostics endpoint/method for admin support screen.
-- Acceptance:
-  - can identify why a device is behind from backend data alone
+4. Settings and payment operations UI
+- Paystack credential health check from settings
+- Payment diagnostics screen (recent failures, verify errors, duplicates blocked)
 
-## P2 - Hardening and Scale
+## P2 - Reliability and Scale
 
-1. Test coverage expansion
-- Add tests for:
-  - concurrent sales on same product
-  - mutation conflict edge cases
-  - soft-delete propagation
-  - large batch sync
-- Add fuzz tests for sync payload decode/validation.
+1. Test expansion
+- Concurrent cashier checkout on shared products
+- Duplicate reference race tests across tills
+- Sync conflict and tombstone propagation edge cases
+- Payload fuzz tests for sync and payment parsing
 
 2. Performance tuning
-- Add indexes based on query plans (`EXPLAIN`) for reports and sync pulls.
-- Benchmark batch apply and recompute under realistic volume.
+- Query plan based indexing for reports/payment lookups/sync pulls
+- Benchmark sync apply and stock recompute under realistic load
 
 3. Security hardening
-- PIN retry lockout policy and cooldown.
-- Optional at-rest encryption for sensitive settings.
-- Structured audit log for privileged actions.
+- PIN/password retry lockout and cooldown policy
+- Structured privileged action audit logs
+- Optional at-rest encryption for sensitive settings
 
-4. Migration/versioning policy
-- Add formal migration version compatibility checks.
-- Add rollback guidance for failed migrations.
+4. Migration policy
+- Forward/backward compatibility checks
+- Versioned migration release notes + rollback playbook
 
 ## P3 - Nice to Have
 
-1. Background workers cleanup
-- Separate worker manager for sync/backup/report jobs.
-- Graceful worker lifecycle hooks for app suspend/resume.
+1. Worker lifecycle manager
+- Unified scheduler for sync/backup/report jobs
+- Suspend/resume safe handling
 
-2. Internal API ergonomics
-- Generate typed frontend SDK from backend type contracts.
-- Add OpenAPI-like schema for sync HTTP endpoints.
+2. API ergonomics
+- Generated typed API client checks in CI
+- OpenAPI-like schema for sync HTTP endpoints
 
 ## Current Known Gaps (Short)
 
-- Real payment providers are not yet wired.
-- Device auth/approval is not yet enforced in sync endpoints.
-- Supplier/PO/report services are still pending.
-- Backup/restore automation is not yet implemented.
-- Sync conflict handling is partially implemented and needs full policy enforcement.
+- Card gateway integration is pending.
+- Sync device approval/auth is not enforced yet.
+- Backup/restore automation is pending.
+- Supplier/PO/reporting flows are partial.
+- Payment metadata/audit depth can be improved for production compliance.

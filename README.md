@@ -9,9 +9,14 @@ It is designed for small retail businesses with 1-5 active cashiers, where owner
 
 ## Current Status
 
-This repository currently contains a Wails + React starter scaffold.
-
-The product architecture and scope are defined in [ARCHITECTURE.md](/home/hood/Desktop/inventory-desktop/ARCHITECTURE.md). Implementation is in early stage.
+This repository now has a working backend + frontend baseline for v1 core flows:
+- Username/password staff login
+- POS cash checkout
+- M-Pesa checkout via Paystack (`/charge` + verify polling)
+- "Customer already paid" verification flow using recent payments + manual reference fallback
+- Inventory, categories, dashboard metrics/charts
+- Unified SQLite migrations and unified seeding
+- Automated backend tests for core flows
 
 ## Product Goals
 
@@ -91,13 +96,16 @@ Optional:
 go run ./cmd/seed -db /absolute/path/to/myduka.db -mode standalone
 ```
 
-### Backend runtime config (optional)
+### Runtime config (`.env`)
 
 - `MYDUKA_MODE=standalone|lan_sync` (default: `standalone`)
-- `MYDUKA_DB_PATH=/absolute/path/to/myduka.db` (default: OS user config dir)
+- `MYDUKA_DB_PATH=./myduka.sqlite` (default: project root DB file)
 - `MYDUKA_SYNC_BASE_URL=http://myduka.local:8080` (used in `lan_sync`)
 - `MYDUKA_SYNC_INTERVAL_SECONDS=5` (used in `lan_sync`)
 - `MYDUKA_SYNC_BATCH_LIMIT=200` (used in `lan_sync`)
+- `PAYSTACK_SECRET_KEY=sk_test_...` (required for real M-Pesa charges)
+- `PAYSTACK_POS_EMAIL=sales@yourshop.co.ke` (required for Paystack charge payload)
+- `PAYSTACK_BASE_URL=https://api.paystack.co` (optional override)
 
 ## Repository Layout
 
@@ -113,6 +121,6 @@ go run ./cmd/seed -db /absolute/path/to/myduka.db -mode standalone
 
 ## Next Milestones
 
-1. Implement Phase 1 single-device POS and admin workflows.
-2. Add M-Pesa/card payment flows with robust fallback handling.
-3. Add LAN server process, discovery, and offline sync reconciliation.
+1. Complete supplier/purchase-order CRUD and receiving workflow.
+2. Add void/refund flows with strict audit controls.
+3. Harden LAN sync auth/device approval and backup/restore automation.

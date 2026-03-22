@@ -23,6 +23,9 @@ Scale:
 | R-11 | Inadequate cashier UX under error states | Medium | High | Product + Frontend | Abandoned transactions, high cashier support calls | Action-oriented error text, no technical codes in UI, non-blocking sync alerts | Hotfix top 5 checkout blockers, temporary SOP card for staff until patch lands |
 | R-12 | Backup restore path not tested in production-like environment | Medium | Critical | Ops + Backend | Backup files exist but restore fails during drill | Monthly restore drill checklist, versioned backup format, restore command in admin tools | Freeze writes, restore known-good snapshot, reconcile via sales and stock reports |
 | R-13 | Card payments fail during internet outages | High | Medium | Product + Payments | Spike in card failures when ISP is unstable | Detect connectivity before card flow; show clear card-unavailable state and fallback options | Route checkout to cash, or pause and retry card once connectivity returns |
+| R-14 | Cashier selects wrong recent payment during "customer already paid" verification | Medium | High | Product + Backend | Multiple similar payments appear in the same time window | Show amount + masked phone + timestamp + reference; enforce exact amount/currency; one-time reference binding; require re-verify on selection | Manager override path with reason code; audit and void/correct workflow |
+| R-15 | Same customer payment reused across tills | Medium | Critical | Backend | Duplicate payment reference appears on new sale attempt | Enforce unique payment reference binding at DB level (`sale_payments.reference` unique); reject duplicate at commit | Block sale finalization, show explicit duplicate-reference message, force cashier to pick another verified payment |
+| R-16 | Paystack transaction list misses expected payment (eventual consistency/API lag) | Medium | Medium | Backend + Product | "No matching recent payments" despite customer proof | Two-step lookup: amount-filtered fetch then broad fallback fetch; manual reference verification fallback; refresh action in UI | Hold sale pending verification; manual reference/code entry; manager-assisted reconciliation |
 
 ## Mode-Specific Notes
 
@@ -31,6 +34,7 @@ Scale:
   - Increases importance of local backup and device security (`R-02`, `R-09`, `R-12`).
 - LAN sync mode (multiple devices):
   - Adds coordination and conflict risks but improves multi-register throughput.
+  - Increases duplicate-payment and mis-selection pressure in busy periods (`R-14`, `R-15`).
 
 ## Review Cadence
 

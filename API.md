@@ -19,10 +19,13 @@ All timestamps are UTC RFC3339 strings.
 
 Env vars:
 - `MYDUKA_MODE=standalone|lan_sync`
-- `MYDUKA_DB_PATH=/absolute/path/to/myduka.db`
+- `MYDUKA_DB_PATH=./myduka.sqlite` (default if unset)
 - `MYDUKA_SYNC_BASE_URL=http://myduka.local:8080`
 - `MYDUKA_SYNC_INTERVAL_SECONDS=5`
 - `MYDUKA_SYNC_BATCH_LIMIT=200`
+- `PAYSTACK_SECRET_KEY=sk_test_...` (required for real M-Pesa)
+- `PAYSTACK_POS_EMAIL=sales@yourshop.co.ke` (required for POS charges)
+- `PAYSTACK_BASE_URL=https://api.paystack.co` (optional override)
 
 ## 2. Frontend Call Pattern (Wails)
 

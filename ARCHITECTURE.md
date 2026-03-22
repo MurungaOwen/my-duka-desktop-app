@@ -107,7 +107,7 @@ If server is unreachable, clients keep selling offline and sync later.
 
 ### Integrations
 
-- M-Pesa Daraja API (STK push + transaction polling)
+- Paystack API (`/charge` + verify polling)
 - Export engines (CSV/PDF/Excel)
 - Receipt printing (OS print path in v1; thermal-specific tuning later)
 
@@ -183,16 +183,24 @@ Recompute trigger:
 ### Supported payment methods
 
 - Cash
-- M-Pesa (STK push + polling)
+- M-Pesa (Paystack charge + polling)
 - Card (internet-required terminal authorization flow)
 
 ### M-Pesa flow (v1)
 
 1. Cashier selects M-Pesa and enters customer phone.
-2. Staff PIN required before payment commit.
-3. App sends STK push request to Daraja API.
-4. App polls transaction status every 3s up to timeout (~2 minutes).
-5. On success, sale finalizes and receipt is issued.
+2. App sends Paystack charge request (mobile money provider `mpesa`).
+3. App polls verification every ~3s up to timeout (~2 minutes).
+4. On success, sale finalizes and receipt is issued.
+5. Payment reference is bound to the sale and cannot be reused.
+
+### Customer-already-paid flow (v1)
+
+1. Cashier opens "Verify existing payment".
+2. App lists recent successful payments in a short time window.
+3. Cashier selects one payment or enters reference manually.
+4. Backend verifies payment and enforces exact amount match.
+5. Sale commits only if reference is unused and verification passes.
 
 ### Offline and degraded cases
 
@@ -202,8 +210,8 @@ Recompute trigger:
   - Cash remains available
   - Offer manual paybill flow with code entry verification
 - Mid-transaction disconnect:
-  - Allow manual confirmation by M-Pesa transaction code from customer SMS
-  - Mark as manually confirmed for audit/reconciliation
+  - Allow manual verification path by reference/recent payments
+  - Enforce amount match and one-time reference usage
   - Card transaction remains pending/failed until network is restored and must be retried
 
 ## 12. Security Model
@@ -257,4 +265,9 @@ Recompute trigger:
 
 ## 16. Implementation Note (Current Repo)
 
-Current codebase is a starter Wails scaffold. This architecture document is the target design baseline for implementation work.
+Core implementation is active, not just scaffold. Current repo includes:
+- Unified SQLite migrations
+- Project-root DB default (`./myduka.sqlite`)
+- Unified demo seeding (settings, staff, categories, suppliers, products, purchase orders, sales)
+- Paystack-backed M-Pesa flow with polling + existing-payment verification path
+- POS/admin UI with dashboard charts and staff management
