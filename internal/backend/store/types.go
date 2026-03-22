@@ -101,6 +101,7 @@ type SaleItemInput struct {
 type CreateSaleInput struct {
 	CashierStaffID string          `json:"cashierStaffId"`
 	PaymentMethod  string          `json:"paymentMethod"`
+	PaymentRef     string          `json:"paymentRef"`
 	Items          []SaleItemInput `json:"items"`
 }
 
@@ -122,9 +123,30 @@ type MPesaChargeStatus struct {
 	Reference       string `json:"reference"`
 	Status          string `json:"status"`
 	Paid            bool   `json:"paid"`
+	AmountCents     int64  `json:"amountCents"`
+	Currency        string `json:"currency"`
+	Channel         string `json:"channel"`
 	GatewayResponse string `json:"gatewayResponse"`
 	DisplayText     string `json:"displayText"`
 	Message         string `json:"message"`
+}
+
+type ListRecentMPesaPaymentsInput struct {
+	WindowMinutes int64 `json:"windowMinutes"`
+	AmountCents   int64 `json:"amountCents"`
+	Limit         int64 `json:"limit"`
+}
+
+type RecentMPesaPayment struct {
+	Reference        string `json:"reference"`
+	AmountCents      int64  `json:"amountCents"`
+	Currency         string `json:"currency"`
+	Channel          string `json:"channel"`
+	PaidAt           string `json:"paidAt"`
+	GatewayResponse  string `json:"gatewayResponse"`
+	CustomerEmail    string `json:"customerEmail"`
+	CustomerName     string `json:"customerName"`
+	AuthorizationKey string `json:"authorizationKey"`
 }
 
 type Sale struct {

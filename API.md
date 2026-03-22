@@ -260,6 +260,7 @@ type SaleItemInput = {
 type CreateSaleInput = {
   cashierStaffId: string
   paymentMethod: "cash" | "mpesa" | "card"
+  paymentRef?: string // for verified external mpesa payments
   items: SaleItemInput[]
 }
 
@@ -293,6 +294,7 @@ Behavior:
 - validates stock availability
 - writes sale + line items + stock transactions atomically
 - recomputes stock for affected products
+- if `paymentMethod=mpesa` and `paymentRef` is present, backend binds the reference to the sale and rejects duplicate reuse.
 
 ### `StartMPesaCharge(input: StartMPesaChargeInput): MPesaChargeSession`
 
@@ -326,6 +328,31 @@ type MPesaChargeStatus = {
   gatewayResponse: string
   displayText: string
   message: string
+}
+```
+
+### `ListRecentMPesaPayments(input: ListRecentMPesaPaymentsInput): RecentMPesaPayment[]`
+
+Use this for "customer already paid" flow.
+Returns recent successful mobile money payments, filtered by time window, amount, and excluding references already used by previous sales.
+
+```ts
+type ListRecentMPesaPaymentsInput = {
+  windowMinutes: number // default 15
+  amountCents: number   // optional exact match if > 0
+  limit: number         // default 30, max 100
+}
+
+type RecentMPesaPayment = {
+  reference: string
+  amountCents: number
+  currency: string
+  channel: string
+  paidAt: string
+  gatewayResponse: string
+  customerEmail: string
+  customerName: string
+  authorizationKey: string
 }
 ```
 

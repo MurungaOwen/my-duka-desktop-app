@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Search, Plus, Minus, Trash2, ShoppingBag } from "lucide-react";
-import type { Product, Category, SaleItemInput } from "../../types/api";
-import { ListCategories, ListProducts, CreateSale, StartMPesaCharge, VerifyMPesaCharge } from "../../../wailsjs/go/main/App";
+import { Search, Plus, Minus, ShoppingBag, Smartphone, CheckCircle2, Loader2 } from "lucide-react";
+import type { Product, Category, SaleItemInput, RecentMPesaPayment } from "../../types/api";
+import { ListCategories, ListProducts, CreateSale, StartMPesaCharge, VerifyMPesaCharge, ListRecentMPesaPayments } from "../../../wailsjs/go/main/App";
 
 export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -13,9 +13,13 @@ export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
   const [checkoutMethod, setCheckoutMethod] = useState<"cash" | "mpesa" | null>(null);
   const [cashReceived, setCashReceived] = useState("");
   const [mpesaPhone, setMpesaPhone] = useState("+254");
-  const [mpesaStage, setMpesaStage] = useState<"idle" | "initiated" | "confirmed">("idle");
+  const [mpesaStage, setMpesaStage] = useState<"idle" | "initiated" | "manual_verify" | "confirmed">("idle");
   const [mpesaReference, setMpesaReference] = useState("");
   const [mpesaStatusText, setMpesaStatusText] = useState("");
+  const [mpesaManualReference, setMpesaManualReference] = useState("");
+  const [recentPayments, setRecentPayments] = useState<RecentMPesaPayment[]>([]);
+  const [loadingRecentPayments, setLoadingRecentPayments] = useState(false);
+  const [recentFallbackMode, setRecentFallbackMode] = useState(false);
   const [mpesaSimulated, setMpesaSimulated] = useState(false);
   const [mpesaPolling, setMpesaPolling] = useState(false);
   const [mpesaPollCount, setMpesaPollCount] = useState(0);
@@ -48,6 +52,22 @@ export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
   useEffect(() => {
     return () => stopMpesaPolling();
   }, []);
+
+  const resetMpesaFlow = (closeCheckout: boolean) => {
+    stopMpesaPolling();
+    setMpesaPhone("+254");
+    setMpesaStage("idle");
+    setMpesaReference("");
+    setMpesaManualReference("");
+    setMpesaStatusText("");
+    setMpesaSimulated(false);
+    setRecentPayments([]);
+    setLoadingRecentPayments(false);
+    setRecentFallbackMode(false);
+    if (closeCheckout) {
+      setCheckoutMethod(null);
+    }
+  };
 
   const filteredProducts = products.filter((p) => {
     if (!p.isActive) return false;
@@ -88,16 +108,15 @@ export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
             productId: c.id,
             quantity: c.cartQty
         }));
-        await CreateSale({ cashierStaffId: cashierId, paymentMethod, items } as any);
+        const payload: any = { cashierStaffId: cashierId, paymentMethod, items };
+        if (paymentMethod === "mpesa" && mpesaReference.trim() !== "") {
+          payload.paymentRef = mpesaReference.trim();
+        }
+        await CreateSale(payload);
         setCart([]);
         setCheckoutMethod(null);
         setCashReceived("");
-        setMpesaPhone("+254");
-        setMpesaStage("idle");
-        setMpesaReference("");
-        setMpesaStatusText("");
-        setMpesaSimulated(false);
-        stopMpesaPolling();
+        resetMpesaFlow(false);
         await fetchCatalog(); // refresh stock
     } catch(err: any) {
         alert("Failed to checkout: " + err);
@@ -150,7 +169,7 @@ export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
         setMpesaStage("initiated");
         setMpesaStatusText("Paystack not configured. Running in simulated confirmation mode.");
       } else {
-        alert("M-Pesa initiation failed: " + msg);
+        setMpesaStatusText(msg);
       }
     } finally {
       setIsProcessing(false);
@@ -186,6 +205,90 @@ export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
       }
     } finally {
       if (!silent) setIsProcessing(false);
+    }
+  };
+
+  const verifyExistingMpesaPayment = async () => {
+    const ref = mpesaManualReference.trim();
+    if (!ref) {
+      setMpesaStatusText("Enter transaction reference/code to verify.");
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const status: any = await VerifyMPesaCharge(ref);
+      if (!status?.paid) {
+        setMpesaStatusText(status?.displayText || status?.gatewayResponse || status?.message || "Payment not confirmed yet for that reference.");
+        return;
+      }
+
+      const paidAmount = Number(status?.amountCents || 0);
+      if (paidAmount !== subtotal) {
+        setMpesaStatusText(
+          `Payment found but amount mismatch. Expected KES ${(subtotal / 100).toFixed(2)}, got KES ${(paidAmount / 100).toFixed(2)}.`
+        );
+        return;
+      }
+
+      setMpesaReference(status?.reference || ref);
+      setMpesaStage("confirmed");
+      setMpesaStatusText("Existing payment verified successfully.");
+    } catch (err: any) {
+      setMpesaStatusText(err?.toString?.() || "Failed to verify reference. Confirm reference/code and retry.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const loadRecentMpesaPayments = async () => {
+    setLoadingRecentPayments(true);
+    setRecentFallbackMode(false);
+    try {
+      let list: any = await ListRecentMPesaPayments({
+        windowMinutes: 15,
+        amountCents: subtotal,
+        limit: 30,
+      } as any);
+      if (!list || list.length === 0) {
+        list = await ListRecentMPesaPayments({
+          windowMinutes: 15,
+          amountCents: 0,
+          limit: 30,
+        } as any);
+        setRecentFallbackMode(true);
+      }
+      setRecentPayments((list || []) as RecentMPesaPayment[]);
+    } catch (err: any) {
+      setMpesaStatusText(err?.toString?.() || "Failed to load recent payments.");
+    } finally {
+      setLoadingRecentPayments(false);
+    }
+  };
+
+  const selectRecentPayment = async (payment: RecentMPesaPayment) => {
+    const ref = payment.reference;
+    setMpesaManualReference(ref);
+    setIsProcessing(true);
+    try {
+      const status: any = await VerifyMPesaCharge(ref);
+      if (!status?.paid) {
+        setMpesaStatusText(status?.displayText || status?.gatewayResponse || status?.message || "Payment is not confirmed.");
+        return;
+      }
+      const paidAmount = Number(status?.amountCents || 0);
+      if (paidAmount !== subtotal) {
+        setMpesaStatusText(
+          `Payment found but amount mismatch. Expected KES ${(subtotal / 100).toFixed(2)}, got KES ${(paidAmount / 100).toFixed(2)}.`
+        );
+        return;
+      }
+      setMpesaReference(status?.reference || ref);
+      setMpesaStage("confirmed");
+      setMpesaStatusText("Existing payment verified successfully.");
+    } catch (err: any) {
+      setMpesaStatusText(err?.toString?.() || "Verification failed for selected payment.");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -303,86 +406,208 @@ export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
           )}
 
           {checkoutMethod === "mpesa" && (
-            <div className="space-y-3">
-              <label className="block">
-                <span className="text-xs text-slate-500 block mb-1">M-Pesa Phone Number</span>
-                <input
-                  type="tel"
-                  value={mpesaPhone}
-                  onChange={(e) => {
-                    setMpesaPhone(normalizePhoneInput(e.target.value));
-                    if (mpesaStage !== "idle") setMpesaStage("idle");
-                    setMpesaReference("");
-                    setMpesaStatusText("");
-                    setMpesaSimulated(false);
-                    stopMpesaPolling();
-                  }}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 outline-none focus:border-emerald-500 bg-white"
-                  placeholder="+2547XXXXXXXX"
-                />
-              </label>
+            <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg p-3 border border-emerald-100">
+              M-Pesa payment flow is open in a modal. Confirm payment there.
+            </p>
+          )}
+        </div>
+      </div>
 
+      {checkoutMethod === "mpesa" && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/45 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
+            <div className="px-6 py-4 bg-gradient-to-r from-emerald-700 to-emerald-600 text-white flex items-center justify-between">
+              <h3 className="font-bold flex items-center gap-2"><Smartphone size={18} /> M-Pesa Checkout</h3>
+              <button
+                disabled={isProcessing}
+                onClick={() => resetMpesaFlow(true)}
+                className="text-xs font-semibold px-2.5 py-1 rounded-md bg-white/20 hover:bg-white/30 disabled:opacity-60"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
               {mpesaStage === "idle" && (
-                <button
-                  disabled={mpesaPhone.trim().length !== 13 || isProcessing}
-                  onClick={initiateMpesa}
-                  className="w-full bg-emerald-600 disabled:bg-slate-300 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-700"
-                >
-                  Initiate M-Pesa Charge
-                </button>
+                <>
+                  <p className="text-sm text-slate-600">Enter customer number to send payment prompt.</p>
+                  <label className="block">
+                    <span className="text-xs text-slate-500 block mb-1">Phone Number</span>
+                    <input
+                      autoFocus
+                      type="tel"
+                      value={mpesaPhone}
+                      onChange={(e) => {
+                        setMpesaPhone(normalizePhoneInput(e.target.value));
+                        if (mpesaStage !== "idle") setMpesaStage("idle");
+                        setMpesaReference("");
+                        setMpesaStatusText("");
+                        setMpesaSimulated(false);
+                        stopMpesaPolling();
+                      }}
+                      className="w-full px-3 py-3 rounded-xl border border-slate-300 outline-none focus:border-emerald-500 bg-white text-lg tracking-wide"
+                      placeholder="+2547XXXXXXXX"
+                    />
+                  </label>
+                  <button
+                    disabled={mpesaPhone.trim().length !== 13 || isProcessing}
+                    onClick={initiateMpesa}
+                    className="w-full bg-emerald-600 disabled:bg-slate-300 text-white py-3 rounded-xl font-bold text-sm hover:bg-emerald-700"
+                  >
+                    Send Payment Prompt
+                  </button>
+                  <button
+                    disabled={isProcessing}
+                    onClick={async () => {
+                      stopMpesaPolling();
+                      setMpesaStage("manual_verify");
+                      setMpesaStatusText("");
+                      await loadRecentMpesaPayments();
+                    }}
+                    className="w-full border border-slate-300 text-slate-700 py-3 rounded-xl font-semibold text-sm hover:bg-slate-50"
+                  >
+                    Verify Existing Payment
+                  </button>
+                </>
               )}
 
               {mpesaStage === "initiated" && (
-                <div className="space-y-2">
-                  <p className="text-xs text-amber-700 bg-amber-50 rounded p-2">
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                     {mpesaStatusText || `Charge created for ${mpesaPhone}.`}
-                  </p>
+                  </div>
                   {mpesaReference && (
                     <p className="text-[11px] text-slate-500 font-mono bg-slate-50 rounded p-2 break-all">Ref: {mpesaReference}</p>
                   )}
                   {!mpesaSimulated && (
-                    <>
-                      <p className="text-[11px] text-slate-500">
-                        {mpesaPolling ? "Auto-checking payment every 3 seconds..." : "Auto-check stopped."}
-                      </p>
+                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                      <Loader2 size={14} className={mpesaPolling ? "animate-spin text-emerald-600" : ""} />
+                      {mpesaPolling ? "Auto-checking every 3 seconds..." : "Auto-check stopped."}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    {!mpesaSimulated && (
                       <button
                         onClick={() => verifyMpesa(false)}
                         disabled={isProcessing}
-                        className="w-full bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-800 disabled:bg-slate-300"
+                        className="flex-1 bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-800 disabled:bg-slate-300"
                       >
-                        Check Paystack Confirmation
+                        Check Now
                       </button>
-                    </>
-                  )}
-                  {mpesaSimulated && (
+                    )}
+                    {mpesaSimulated && (
+                      <button
+                        onClick={() => setMpesaStage("confirmed")}
+                        className="flex-1 bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-800"
+                      >
+                        Confirm Paid (Simulated)
+                      </button>
+                    )}
                     <button
-                      onClick={() => setMpesaStage("confirmed")}
-                      className="w-full bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-800"
+                      onClick={() => resetMpesaFlow(true)}
+                      className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-600 font-semibold text-sm"
                     >
-                      Confirm Customer Paid (Simulated)
+                      Cancel
                     </button>
-                  )}
+                  </div>
                 </div>
               )}
 
               {mpesaStage === "confirmed" && (
-                <div className="space-y-2">
-                  <p className="text-xs text-emerald-700 bg-emerald-50 rounded p-2">Payment confirmed. Complete sale now.</p>
+                <div className="space-y-4 text-center">
+                  <div className="mx-auto w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center">
+                    <CheckCircle2 size={48} className="text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-xl font-black text-emerald-700">Payment Confirmed</p>
+                    <p className="text-sm text-slate-500 mt-1">Customer payment has been received.</p>
+                  </div>
                   <button
                     disabled={isProcessing || cart.length === 0}
                     onClick={() => handleCheckout("mpesa")}
-                    className="w-full bg-emerald-600 disabled:bg-slate-300 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-700"
+                    className="w-full bg-emerald-600 disabled:bg-slate-300 text-white py-3 rounded-xl font-bold text-sm hover:bg-emerald-700"
                   >
                     Complete M-Pesa Sale
                   </button>
                 </div>
               )}
 
-              <button onClick={() => { stopMpesaPolling(); setCheckoutMethod(null); setMpesaStage("idle"); setMpesaPhone("+254"); }} className="w-full py-2.5 rounded-xl border border-slate-300 text-slate-600 font-semibold">Back</button>
+              {mpesaStage === "manual_verify" && (
+                <div className="space-y-3">
+                  <p className="text-sm text-slate-600">
+                    Customer already paid? Enter unique payment reference/code and verify it.
+                    Amount alone is not used.
+                  </p>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-semibold text-slate-600">Recent Payments (last 15 min, matching amount)</p>
+                      <button
+                        onClick={loadRecentMpesaPayments}
+                        disabled={loadingRecentPayments}
+                        className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-white disabled:opacity-50"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                    {loadingRecentPayments && <p className="text-xs text-slate-500">Loading recent payments...</p>}
+                    {!loadingRecentPayments && recentPayments.length === 0 && (
+                      <p className="text-xs text-slate-500">No matching recent payments found. Use manual reference below.</p>
+                    )}
+                    {!loadingRecentPayments && recentPayments.length > 0 && recentFallbackMode && (
+                      <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded p-2 mb-2">
+                        Showing recent successful payments (all amounts). Final verification will still enforce exact amount match.
+                      </p>
+                    )}
+                    {!loadingRecentPayments && recentPayments.length > 0 && (
+                      <div className="max-h-36 overflow-y-auto space-y-2">
+                        {recentPayments.map((p) => (
+                          <button
+                            key={p.reference}
+                            onClick={() => selectRecentPayment(p)}
+                            className="w-full text-left rounded-lg border border-slate-200 bg-white px-3 py-2 hover:border-emerald-300 hover:bg-emerald-50/30"
+                          >
+                            <p className="text-xs font-semibold text-slate-700">
+                              KES {(p.amountCents / 100).toFixed(2)} • {p.authorizationKey || "Phone unavailable"}
+                            </p>
+                            <p className="text-[11px] text-slate-500 truncate">{p.customerName || "Customer"}</p>
+                            <p className="text-[11px] text-slate-500 font-mono truncate">{p.reference}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={mpesaManualReference}
+                    onChange={(e) => setMpesaManualReference(e.target.value.toUpperCase())}
+                    className="w-full px-3 py-3 rounded-xl border border-slate-300 outline-none focus:border-emerald-500 bg-white font-mono tracking-wide"
+                    placeholder="e.g. PSK_REF_123 or M-PESA CODE"
+                  />
+                  {mpesaStatusText && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2">{mpesaStatusText}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={verifyExistingMpesaPayment}
+                      disabled={isProcessing || mpesaManualReference.trim().length < 6}
+                      className="flex-1 bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-800 disabled:bg-slate-300"
+                    >
+                      Verify Payment
+                    </button>
+                    <button
+                      onClick={() => { setMpesaStage("idle"); setMpesaStatusText(""); }}
+                      className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-600 font-semibold text-sm"
+                    >
+                      Back
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

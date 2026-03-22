@@ -247,6 +247,9 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 	if err := applyUnifiedMigration3(db); err != nil {
 		return err
 	}
+	if err := applyUnifiedMigration4(db); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -344,4 +347,55 @@ func hasColumnTx(tx *sql.Tx, tableName, columnName string) (bool, error) {
 		return false, fmt.Errorf("iterate pragma table_info(%s): %w", tableName, err)
 	}
 	return false, nil
+}
+
+func applyUnifiedMigration4(db *sql.DB) error {
+	var exists int
+	if err := db.QueryRow(`SELECT COUNT(1) FROM schema_migrations WHERE id = 4`).Scan(&exists); err != nil {
+		return fmt.Errorf("check migration 4: %w", err)
+	}
+	if exists > 0 {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin migration 4: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS sale_payments (
+  id TEXT PRIMARY KEY,
+  sale_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  reference TEXT NOT NULL UNIQUE,
+  amount_cents INTEGER NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'KES',
+  created_at TEXT NOT NULL,
+  verified_by_staff_id TEXT NOT NULL DEFAULT '',
+  device_id TEXT NOT NULL,
+  synced_at TEXT,
+  FOREIGN KEY (sale_id) REFERENCES sales(id)
+)`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("migration 4 create sale_payments: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_sale_payments_sale_id ON sale_payments(sale_id)`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("migration 4 create idx_sale_payments_sale_id: %w", err)
+	}
+
+	if _, err := tx.Exec(
+		`INSERT INTO schema_migrations(id, applied_at) VALUES (?, ?)`,
+		4,
+		nowTS(),
+	); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("record migration 4: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration 4: %w", err)
+	}
+	return nil
 }

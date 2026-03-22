@@ -36,8 +36,33 @@ type paystackEnvelope struct {
 type paystackChargeData struct {
 	Reference       string `json:"reference"`
 	Status          string `json:"status"`
+	Amount          int64  `json:"amount"`
+	Currency        string `json:"currency"`
+	Channel         string `json:"channel"`
 	DisplayText     string `json:"display_text"`
 	GatewayResponse string `json:"gateway_response"`
+}
+
+type paystackTransactionList struct {
+	Data []paystackTransaction `json:"data"`
+}
+
+type paystackTransaction struct {
+	Reference       string `json:"reference"`
+	Amount          int64  `json:"amount"`
+	Currency        string `json:"currency"`
+	Channel         string `json:"channel"`
+	GatewayResponse string `json:"gateway_response"`
+	PaidAt          string `json:"paid_at"`
+	CreatedAt       string `json:"created_at"`
+	Customer        struct {
+		Email     string `json:"email"`
+		FirstName string `json:"first_name"`
+		LastName  string `json:"last_name"`
+	} `json:"customer"`
+	Authorization struct {
+		MobileMoneyNumber string `json:"mobile_money_number"`
+	} `json:"authorization"`
 }
 
 func (s *Service) StartMPesaCharge(input StartMPesaChargeInput) (MPesaChargeSession, error) {
@@ -213,10 +238,119 @@ func (s *Service) VerifyMPesaCharge(reference string) (MPesaChargeStatus, error)
 		Reference:       ref,
 		Status:          status,
 		Paid:            status == "success",
+		AmountCents:     data.Amount,
+		Currency:        strings.ToUpper(strings.TrimSpace(data.Currency)),
+		Channel:         strings.ToLower(strings.TrimSpace(data.Channel)),
 		GatewayResponse: strings.TrimSpace(data.GatewayResponse),
 		DisplayText:     strings.TrimSpace(data.DisplayText),
 		Message:         strings.TrimSpace(env.Message),
 	}, nil
+}
+
+func (s *Service) ListRecentMPesaPayments(input ListRecentMPesaPaymentsInput) ([]RecentMPesaPayment, error) {
+	db, err := s.getDB()
+	if err != nil {
+		return nil, err
+	}
+	client, err := s.newPaystackClient(db)
+	if err != nil {
+		return nil, err
+	}
+
+	windowMinutes := input.WindowMinutes
+	if windowMinutes <= 0 {
+		windowMinutes = 15
+	}
+	limit := input.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+
+	path := fmt.Sprintf("/transaction?status=success&perPage=%d&page=1", limit)
+	var env paystackEnvelope
+	if err := client.doJSON(http.MethodGet, path, nil, &env); err != nil {
+		return nil, err
+	}
+	if !env.Status {
+		return nil, fmt.Errorf("paystack list transactions failed: %s", strings.TrimSpace(env.Message))
+	}
+
+	var list paystackTransactionList
+	if len(env.Data) > 0 && string(env.Data) != "null" {
+		if err := json.Unmarshal(env.Data, &list); err != nil {
+			var flat []paystackTransaction
+			if err2 := json.Unmarshal(env.Data, &flat); err2 != nil {
+				return nil, fmt.Errorf("decode paystack transaction list: %w", err)
+			}
+			list.Data = flat
+		}
+	}
+
+	usedRefs, err := s.usedPaymentReferences(db)
+	if err != nil {
+		return nil, err
+	}
+
+	cutoff := time.Now().UTC().Add(-time.Duration(windowMinutes) * time.Minute)
+	out := make([]RecentMPesaPayment, 0, len(list.Data))
+	for _, tx := range list.Data {
+		ref := strings.TrimSpace(tx.Reference)
+		if ref == "" || usedRefs[ref] {
+			continue
+		}
+		channel := strings.ToLower(strings.TrimSpace(tx.Channel))
+		if input.AmountCents > 0 && tx.Amount != input.AmountCents {
+			continue
+		}
+		paidAt := strings.TrimSpace(tx.PaidAt)
+		if paidAt == "" {
+			paidAt = strings.TrimSpace(tx.CreatedAt)
+		}
+		if paidAt != "" {
+			if t, parseErr := time.Parse(time.RFC3339, paidAt); parseErr == nil {
+				if t.UTC().Before(cutoff) {
+					continue
+				}
+			}
+		}
+
+		name := strings.TrimSpace(strings.TrimSpace(tx.Customer.FirstName) + " " + strings.TrimSpace(tx.Customer.LastName))
+		out = append(out, RecentMPesaPayment{
+			Reference:        ref,
+			AmountCents:      tx.Amount,
+			Currency:         strings.ToUpper(strings.TrimSpace(tx.Currency)),
+			Channel:          channel,
+			PaidAt:           paidAt,
+			GatewayResponse:  strings.TrimSpace(tx.GatewayResponse),
+			CustomerEmail:    strings.TrimSpace(tx.Customer.Email),
+			CustomerName:     name,
+			AuthorizationKey: strings.TrimSpace(tx.Authorization.MobileMoneyNumber),
+		})
+	}
+	return out, nil
+}
+
+func (s *Service) usedPaymentReferences(db *sql.DB) (map[string]bool, error) {
+	rows, err := db.Query(`SELECT reference FROM sale_payments`)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such table") {
+			return map[string]bool{}, nil
+		}
+		return nil, fmt.Errorf("query used payment references: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			return nil, fmt.Errorf("scan used payment reference: %w", err)
+		}
+		out[strings.TrimSpace(ref)] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate used payment references: %w", err)
+	}
+	return out, nil
 }
 
 func (s *Service) newPaystackClient(db *sql.DB) (*paystackClient, error) {

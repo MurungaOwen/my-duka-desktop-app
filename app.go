@@ -338,6 +338,13 @@ func (a *App) VerifyMPesaCharge(reference string) (backend.MPesaChargeStatus, er
 	return a.svc.VerifyMPesaCharge(reference)
 }
 
+func (a *App) ListRecentMPesaPayments(input backend.ListRecentMPesaPaymentsInput) ([]backend.RecentMPesaPayment, error) {
+	if a.svc == nil {
+		return nil, errors.New("backend service unavailable")
+	}
+	return a.svc.ListRecentMPesaPayments(input)
+}
+
 func (a *App) ListSales(limit int64) ([]backend.Sale, error) {
 	if a.svc == nil {
 		return nil, errors.New("backend service unavailable")

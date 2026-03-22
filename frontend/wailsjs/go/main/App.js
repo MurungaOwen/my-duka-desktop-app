@@ -66,6 +66,10 @@ export function ListProducts() {
   return window['go']['main']['App']['ListProducts']();
 }
 
+export function ListRecentMPesaPayments(arg1) {
+  return window['go']['main']['App']['ListRecentMPesaPayments'](arg1);
+}
+
 export function ListSales(arg1) {
   return window['go']['main']['App']['ListSales'](arg1);
 }

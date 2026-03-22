@@ -104,6 +104,7 @@ func (s *Service) CreateSale(input CreateSaleInput) (SaleDetail, error) {
 	}
 
 	cashierID := strings.TrimSpace(input.CashierStaffID)
+	paymentRef := strings.TrimSpace(input.PaymentRef)
 	if cashierID == "" {
 		return SaleDetail{}, errors.New("cashier staff id is required")
 	}
@@ -277,6 +278,28 @@ func (s *Service) CreateSale(input CreateSaleInput) (SaleDetail, error) {
 	if err := s.recomputeProductStocksTx(tx, affectedProducts); err != nil {
 		_ = tx.Rollback()
 		return SaleDetail{}, err
+	}
+
+	if paymentMethod == "mpesa" && paymentRef != "" {
+		paymentID := uuid.NewString()
+		_, err = tx.Exec(
+			`INSERT INTO sale_payments(id, sale_id, provider, reference, amount_cents, currency, created_at, verified_by_staff_id, device_id, synced_at)
+			 VALUES (?, ?, 'mpesa', ?, ?, 'KES', ?, ?, ?, NULL)`,
+			paymentID,
+			sale.ID,
+			paymentRef,
+			sale.TotalCents,
+			now,
+			cashierID,
+			s.cfg.DeviceID,
+		)
+		if err != nil {
+			_ = tx.Rollback()
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				return SaleDetail{}, errors.New("payment reference already used by another sale")
+			}
+			return SaleDetail{}, fmt.Errorf("insert sale payment binding: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

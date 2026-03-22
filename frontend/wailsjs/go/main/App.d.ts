@@ -35,6 +35,8 @@ export function ListPendingSyncRecords(arg1:number):Promise<Array<store.SyncReco
 
 export function ListProducts():Promise<Array<store.Product>>;
 
+export function ListRecentMPesaPayments(arg1:store.ListRecentMPesaPaymentsInput):Promise<Array<store.RecentMPesaPayment>>;
+
 export function ListSales(arg1:number):Promise<Array<store.Sale>>;
 
 export function ListSettings():Promise<Array<store.Setting>>;

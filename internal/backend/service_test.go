@@ -277,6 +277,58 @@ func TestCreateSaleInsufficientStock(t *testing.T) {
 	}
 }
 
+func TestCreateSaleRejectsDuplicatePaymentReference(t *testing.T) {
+	svc := setupTestService(t)
+
+	cashier, err := svc.CreateStaff(CreateStaffInput{
+		Name:     "Ref Cashier",
+		Username: "refcashier",
+		Role:     "cashier",
+		Password: "1234",
+	})
+	if err != nil {
+		t.Fatalf("create staff: %v", err)
+	}
+
+	product, err := svc.CreateProduct(CreateProductInput{
+		Name:          "Soda",
+		PriceCents:    1000,
+		StartingStock: 10,
+		ReorderLevel:  2,
+	})
+	if err != nil {
+		t.Fatalf("create product: %v", err)
+	}
+
+	ref := "PSK_DUPLICATE_REF_001"
+	_, err = svc.CreateSale(CreateSaleInput{
+		CashierStaffID: cashier.ID,
+		PaymentMethod:  "mpesa",
+		PaymentRef:     ref,
+		Items: []SaleItemInput{
+			{ProductID: product.ID, Quantity: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("first sale create failed: %v", err)
+	}
+
+	_, err = svc.CreateSale(CreateSaleInput{
+		CashierStaffID: cashier.ID,
+		PaymentMethod:  "mpesa",
+		PaymentRef:     ref,
+		Items: []SaleItemInput{
+			{ProductID: product.ID, Quantity: 1},
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected duplicate payment reference error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "payment reference already used") {
+		t.Fatalf("expected duplicate payment reference error, got %v", err)
+	}
+}
+
 func TestAdjustStockLowStockAndDashboardSummary(t *testing.T) {
 	svc := setupTestService(t)
 

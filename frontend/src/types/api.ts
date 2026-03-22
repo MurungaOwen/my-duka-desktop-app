@@ -123,6 +123,7 @@ export type PaymentMethod = "cash" | "mpesa" | "card";
 export type CreateSaleInput = {
   cashierStaffId: string;
   paymentMethod: PaymentMethod;
+  paymentRef?: string;
   items: SaleItemInput[];
 };
 
@@ -144,9 +145,30 @@ export type MPesaChargeStatus = {
   reference: string;
   status: string;
   paid: boolean;
+  amountCents: number;
+  currency: string;
+  channel: string;
   gatewayResponse: string;
   displayText: string;
   message: string;
+};
+
+export type ListRecentMPesaPaymentsInput = {
+  windowMinutes: number;
+  amountCents: number;
+  limit: number;
+};
+
+export type RecentMPesaPayment = {
+  reference: string;
+  amountCents: number;
+  currency: string;
+  channel: string;
+  paidAt: string;
+  gatewayResponse: string;
+  customerEmail: string;
+  customerName: string;
+  authorizationKey: string;
 };
 
 export type Sale = {

@@ -130,6 +130,7 @@ export namespace store {
 	export class CreateSaleInput {
 	    cashierStaffId: string;
 	    paymentMethod: string;
+	    paymentRef: string;
 	    items: SaleItemInput[];
 	
 	    static createFrom(source: any = {}) {
@@ -140,6 +141,7 @@ export namespace store {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.cashierStaffId = source["cashierStaffId"];
 	        this.paymentMethod = source["paymentMethod"];
+	        this.paymentRef = source["paymentRef"];
 	        this.items = this.convertValues(source["items"], SaleItemInput);
 	    }
 	
@@ -239,6 +241,22 @@ export namespace store {
 	        this.deviceName = source["deviceName"];
 	    }
 	}
+	export class ListRecentMPesaPaymentsInput {
+	    windowMinutes: number;
+	    amountCents: number;
+	    limit: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ListRecentMPesaPaymentsInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.windowMinutes = source["windowMinutes"];
+	        this.amountCents = source["amountCents"];
+	        this.limit = source["limit"];
+	    }
+	}
 	export class MPesaChargeSession {
 	    reference: string;
 	    status: string;
@@ -261,6 +279,9 @@ export namespace store {
 	    reference: string;
 	    status: string;
 	    paid: boolean;
+	    amountCents: number;
+	    currency: string;
+	    channel: string;
 	    gatewayResponse: string;
 	    displayText: string;
 	    message: string;
@@ -274,6 +295,9 @@ export namespace store {
 	        this.reference = source["reference"];
 	        this.status = source["status"];
 	        this.paid = source["paid"];
+	        this.amountCents = source["amountCents"];
+	        this.currency = source["currency"];
+	        this.channel = source["channel"];
 	        this.gatewayResponse = source["gatewayResponse"];
 	        this.displayText = source["displayText"];
 	        this.message = source["message"];
@@ -343,6 +367,34 @@ export namespace store {
 	        this.name = source["name"];
 	        this.stockQty = source["stockQty"];
 	        this.reorderLevel = source["reorderLevel"];
+	    }
+	}
+	export class RecentMPesaPayment {
+	    reference: string;
+	    amountCents: number;
+	    currency: string;
+	    channel: string;
+	    paidAt: string;
+	    gatewayResponse: string;
+	    customerEmail: string;
+	    customerName: string;
+	    authorizationKey: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RecentMPesaPayment(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.reference = source["reference"];
+	        this.amountCents = source["amountCents"];
+	        this.currency = source["currency"];
+	        this.channel = source["channel"];
+	        this.paidAt = source["paidAt"];
+	        this.gatewayResponse = source["gatewayResponse"];
+	        this.customerEmail = source["customerEmail"];
+	        this.customerName = source["customerName"];
+	        this.authorizationKey = source["authorizationKey"];
 	    }
 	}
 	export class Sale {

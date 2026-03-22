@@ -47,10 +47,10 @@ func TestStartAndVerifyMPesaCharge(t *testing.T) {
 			Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 				body := `{"status":true,"message":"ok","data":{"reference":"mdk_ref_123","status":"pending","display_text":"Approve on phone"}}`
 				if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/transaction/verify/") {
-					body = `{"status":true,"message":"verified","data":{"reference":"mdk_ref_123","status":"success","gateway_response":"Successful"}}`
+					body = `{"status":true,"message":"verified","data":{"reference":"mdk_ref_123","status":"success","amount":5000,"currency":"KES","channel":"mobile_money","gateway_response":"Successful"}}`
 				}
 				if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/charge/") {
-					body = `{"status":true,"message":"verified","data":{"reference":"mdk_ref_123","status":"success","gateway_response":"Successful"}}`
+					body = `{"status":true,"message":"verified","data":{"reference":"mdk_ref_123","status":"success","amount":5000,"currency":"KES","channel":"mobile_money","gateway_response":"Successful"}}`
 				}
 				return &http.Response{
 					StatusCode: 200,
@@ -88,6 +88,9 @@ func TestStartAndVerifyMPesaCharge(t *testing.T) {
 	}
 	if status.Status != "success" {
 		t.Fatalf("expected success, got %s", status.Status)
+	}
+	if status.AmountCents != 5000 {
+		t.Fatalf("expected amount 5000, got %d", status.AmountCents)
 	}
 }
 
@@ -129,7 +132,7 @@ func TestVerifyMPesaChargeFallsBackToChargeLookup(t *testing.T) {
 				if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/charge/") {
 					return &http.Response{
 						StatusCode: 200,
-						Body:       io.NopCloser(strings.NewReader(`{"status":true,"message":"ok","data":{"reference":"mdk_ref_456","status":"success"}}`)),
+						Body:       io.NopCloser(strings.NewReader(`{"status":true,"message":"ok","data":{"reference":"mdk_ref_456","status":"success","amount":1200,"currency":"KES","channel":"mobile_money"}}`)),
 						Header:     make(http.Header),
 					}, nil
 				}
@@ -222,5 +225,76 @@ func TestStartMPesaChargeMissingPOSEmail(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(err.Error()), "paystack email") {
 		t.Fatalf("expected paystack email error, got %v", err)
+	}
+}
+
+func TestListRecentMPesaPaymentsExcludesUsedReferences(t *testing.T) {
+	svc := setupStoreService(t)
+
+	staff, err := svc.CreateStaff(CreateStaffInput{
+		Name:     "Recent Cashier",
+		Username: "recentcashier",
+		Role:     "cashier",
+		Password: "1234",
+	})
+	if err != nil {
+		t.Fatalf("create staff: %v", err)
+	}
+	product, err := svc.CreateProduct(CreateProductInput{
+		Name:          "Recent Product",
+		PriceCents:    5000,
+		StartingStock: 4,
+		ReorderLevel:  1,
+	})
+	if err != nil {
+		t.Fatalf("create product: %v", err)
+	}
+	_, err = svc.CreateSale(CreateSaleInput{
+		CashierStaffID: staff.ID,
+		PaymentMethod:  "mpesa",
+		PaymentRef:     "USED_REF",
+		Items: []SaleItemInput{
+			{ProductID: product.ID, Quantity: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create sale with used ref: %v", err)
+	}
+
+	origFactory := newPaystackHTTPClient
+	t.Cleanup(func() { newPaystackHTTPClient = origFactory })
+	newPaystackHTTPClient = func() *http.Client {
+		return &http.Client{
+			Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				body := `{"status":true,"message":"ok","data":[
+					{"reference":"USED_REF","amount":5000,"currency":"KES","channel":"mobile_money","paid_at":"2099-01-01T00:00:00Z","customer":{"email":"a@example.com","first_name":"A","last_name":"One"}},
+					{"reference":"FREE_REF","amount":5000,"currency":"KES","channel":"mobile_money","paid_at":"2099-01-01T00:00:00Z","customer":{"email":"b@example.com","first_name":"B","last_name":"Two"}}
+				]}`
+				return &http.Response{
+					StatusCode: 200,
+					Body:       io.NopCloser(strings.NewReader(body)),
+					Header:     make(http.Header),
+				}, nil
+			}),
+		}
+	}
+
+	t.Setenv("PAYSTACK_SECRET_KEY", "test_secret")
+	t.Setenv("PAYSTACK_BASE_URL", "https://api.paystack.test")
+	t.Setenv("PAYSTACK_POS_EMAIL", "sales@myduka.co.ke")
+
+	list, err := svc.ListRecentMPesaPayments(ListRecentMPesaPaymentsInput{
+		WindowMinutes: 15,
+		AmountCents:   5000,
+		Limit:         20,
+	})
+	if err != nil {
+		t.Fatalf("list recent mpesa payments: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected exactly one unused reference, got %d", len(list))
+	}
+	if list[0].Reference != "FREE_REF" {
+		t.Fatalf("expected FREE_REF, got %s", list[0].Reference)
 	}
 }
