@@ -104,6 +104,29 @@ type CreateSaleInput struct {
 	Items          []SaleItemInput `json:"items"`
 }
 
+type StartMPesaChargeInput struct {
+	Phone       string `json:"phone"`
+	AmountCents int64  `json:"amountCents"`
+	Email       string `json:"email"`
+	Reference   string `json:"reference"`
+}
+
+type MPesaChargeSession struct {
+	Reference   string `json:"reference"`
+	Status      string `json:"status"`
+	DisplayText string `json:"displayText"`
+	Message     string `json:"message"`
+}
+
+type MPesaChargeStatus struct {
+	Reference       string `json:"reference"`
+	Status          string `json:"status"`
+	Paid            bool   `json:"paid"`
+	GatewayResponse string `json:"gatewayResponse"`
+	DisplayText     string `json:"displayText"`
+	Message         string `json:"message"`
+}
+
 type Sale struct {
 	ID             string `json:"id"`
 	CashierStaffID string `json:"cashierStaffId"`

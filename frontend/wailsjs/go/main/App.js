@@ -90,12 +90,20 @@ export function SeedDemoData() {
   return window['go']['main']['App']['SeedDemoData']();
 }
 
+export function StartMPesaCharge(arg1) {
+  return window['go']['main']['App']['StartMPesaCharge'](arg1);
+}
+
 export function StartupStatus() {
   return window['go']['main']['App']['StartupStatus']();
 }
 
 export function UpsertSetting(arg1) {
   return window['go']['main']['App']['UpsertSetting'](arg1);
+}
+
+export function VerifyMPesaCharge(arg1) {
+  return window['go']['main']['App']['VerifyMPesaCharge'](arg1);
 }
 
 export function VerifyStaffPIN(arg1) {

@@ -239,6 +239,46 @@ export namespace store {
 	        this.deviceName = source["deviceName"];
 	    }
 	}
+	export class MPesaChargeSession {
+	    reference: string;
+	    status: string;
+	    displayText: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MPesaChargeSession(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.reference = source["reference"];
+	        this.status = source["status"];
+	        this.displayText = source["displayText"];
+	        this.message = source["message"];
+	    }
+	}
+	export class MPesaChargeStatus {
+	    reference: string;
+	    status: string;
+	    paid: boolean;
+	    gatewayResponse: string;
+	    displayText: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MPesaChargeStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.reference = source["reference"];
+	        this.status = source["status"];
+	        this.paid = source["paid"];
+	        this.gatewayResponse = source["gatewayResponse"];
+	        this.displayText = source["displayText"];
+	        this.message = source["message"];
+	    }
+	}
 	export class PINVerificationInput {
 	    staffId: string;
 	    pin: string;
@@ -495,6 +535,24 @@ export namespace store {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.username = source["username"];
 	        this.password = source["password"];
+	    }
+	}
+	export class StartMPesaChargeInput {
+	    phone: string;
+	    amountCents: number;
+	    email: string;
+	    reference: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StartMPesaChargeInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.phone = source["phone"];
+	        this.amountCents = source["amountCents"];
+	        this.email = source["email"];
+	        this.reference = source["reference"];
 	    }
 	}
 	export class StockAdjustmentInput {

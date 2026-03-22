@@ -47,8 +47,12 @@ export function PullMutationsForDevice(arg1:string,arg2:string,arg3:number):Prom
 
 export function SeedDemoData():Promise<store.SeedResult>;
 
+export function StartMPesaCharge(arg1:store.StartMPesaChargeInput):Promise<store.MPesaChargeSession>;
+
 export function StartupStatus():Promise<string>;
 
 export function UpsertSetting(arg1:store.Setting):Promise<void>;
+
+export function VerifyMPesaCharge(arg1:string):Promise<store.MPesaChargeStatus>;
 
 export function VerifyStaffPIN(arg1:store.PINVerificationInput):Promise<boolean>;

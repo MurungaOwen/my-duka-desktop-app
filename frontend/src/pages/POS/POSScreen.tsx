@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Search, Plus, Minus, Trash2, ShoppingBag } from "lucide-react";
 import type { Product, Category, SaleItemInput } from "../../types/api";
-import { ListCategories, ListProducts, CreateSale } from "../../../wailsjs/go/main/App";
+import { ListCategories, ListProducts, CreateSale, StartMPesaCharge, VerifyMPesaCharge } from "../../../wailsjs/go/main/App";
 
 export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -12,8 +12,14 @@ export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [checkoutMethod, setCheckoutMethod] = useState<"cash" | "mpesa" | null>(null);
   const [cashReceived, setCashReceived] = useState("");
-  const [mpesaPhone, setMpesaPhone] = useState("");
+  const [mpesaPhone, setMpesaPhone] = useState("+254");
   const [mpesaStage, setMpesaStage] = useState<"idle" | "initiated" | "confirmed">("idle");
+  const [mpesaReference, setMpesaReference] = useState("");
+  const [mpesaStatusText, setMpesaStatusText] = useState("");
+  const [mpesaSimulated, setMpesaSimulated] = useState(false);
+  const [mpesaPolling, setMpesaPolling] = useState(false);
+  const [mpesaPollCount, setMpesaPollCount] = useState(0);
+  const pollTimerRef = useRef<number | null>(null);
 
   const fetchCatalog = async () => {
     try {
@@ -28,6 +34,19 @@ export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
 
   useEffect(() => {
     fetchCatalog();
+  }, []);
+
+  const stopMpesaPolling = () => {
+    if (pollTimerRef.current !== null) {
+      window.clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    setMpesaPolling(false);
+    setMpesaPollCount(0);
+  };
+
+  useEffect(() => {
+    return () => stopMpesaPolling();
   }, []);
 
   const filteredProducts = products.filter((p) => {
@@ -73,8 +92,12 @@ export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
         setCart([]);
         setCheckoutMethod(null);
         setCashReceived("");
-        setMpesaPhone("");
+        setMpesaPhone("+254");
         setMpesaStage("idle");
+        setMpesaReference("");
+        setMpesaStatusText("");
+        setMpesaSimulated(false);
+        stopMpesaPolling();
         await fetchCatalog(); // refresh stock
     } catch(err: any) {
         alert("Failed to checkout: " + err);
@@ -87,6 +110,84 @@ export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
   const totalStr = (subtotal / 100).toFixed(2);
   const cashReceivedCents = Number(cashReceived || "0") * 100;
   const changeCents = Math.max(0, cashReceivedCents - subtotal);
+
+  const normalizePhoneInput = (value: string) => {
+    let digits = value.replace(/[^\d]/g, "");
+    if (digits.startsWith("254")) {
+      digits = digits.slice(3);
+    } else if (digits.startsWith("0")) {
+      digits = digits.slice(1);
+    }
+    digits = digits.slice(0, 9);
+    return `+254${digits}`;
+  };
+
+  const initiateMpesa = async () => {
+    if (mpesaPhone.trim().length !== 13) return;
+    setIsProcessing(true);
+    setMpesaStatusText("");
+    setMpesaSimulated(false);
+    try {
+      const session: any = await StartMPesaCharge({
+        phone: mpesaPhone.trim(),
+        amountCents: subtotal,
+      } as any);
+      setMpesaReference(session?.reference || "");
+      setMpesaStage("initiated");
+      setMpesaStatusText(session?.displayText || session?.message || "Charge initiated. Ask customer to approve on phone.");
+      if (session?.reference) {
+        setMpesaPolling(true);
+        setMpesaPollCount(0);
+        const ref = String(session.reference);
+        pollTimerRef.current = window.setInterval(() => {
+          verifyMpesa(true, ref);
+        }, 3000);
+      }
+    } catch (err: any) {
+      const msg = err?.toString?.() || "Failed to initiate M-Pesa payment";
+      if (msg.toLowerCase().includes("paystack is not configured")) {
+        setMpesaSimulated(true);
+        setMpesaStage("initiated");
+        setMpesaStatusText("Paystack not configured. Running in simulated confirmation mode.");
+      } else {
+        alert("M-Pesa initiation failed: " + msg);
+      }
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const verifyMpesa = async (silent = false, referenceOverride?: string) => {
+    const reference = referenceOverride || mpesaReference;
+    if (!reference) return;
+    if (!silent) setIsProcessing(true);
+    try {
+      const status: any = await VerifyMPesaCharge(reference);
+      if (status?.paid) {
+        stopMpesaPolling();
+        setMpesaStage("confirmed");
+        setMpesaStatusText("Payment confirmed by Paystack.");
+        return;
+      }
+      if (silent) {
+        setMpesaPollCount((prev) => {
+          const next = prev + 1;
+          if (next >= 40) {
+            stopMpesaPolling();
+            setMpesaStatusText("Payment still pending after 2 minutes. You can keep checking manually.");
+          }
+          return next;
+        });
+      }
+      setMpesaStatusText(status?.displayText || status?.gatewayResponse || status?.message || `Current status: ${status?.status || "pending"}`);
+    } catch (err: any) {
+      if (!silent) {
+        setMpesaStatusText("Could not verify payment yet. Retry in a few seconds.");
+      }
+    } finally {
+      if (!silent) setIsProcessing(false);
+    }
+  };
 
   return (
     <div className="flex h-full w-full bg-slate-50">
@@ -162,7 +263,7 @@ export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
 
           {checkoutMethod === null && (
             <div className="flex gap-2">
-              <button disabled={cart.length === 0 || isProcessing} onClick={() => setCheckoutMethod("mpesa")} className="flex-1 bg-emerald-600 disabled:bg-slate-300 text-white py-3 rounded-xl font-bold text-sm hover:bg-emerald-700 active:scale-[0.98] transition-all">M-Pesa</button>
+              <button disabled={cart.length === 0 || isProcessing} onClick={() => { setMpesaPhone("+254"); setCheckoutMethod("mpesa"); }} className="flex-1 bg-emerald-600 disabled:bg-slate-300 text-white py-3 rounded-xl font-bold text-sm hover:bg-emerald-700 active:scale-[0.98] transition-all">M-Pesa</button>
               <button disabled={cart.length === 0 || isProcessing} onClick={() => setCheckoutMethod("cash")} className="flex-1 bg-blue-600 disabled:bg-slate-300 text-white py-3 rounded-xl font-bold text-sm hover:bg-blue-700 active:scale-[0.98] transition-all">Cash</button>
             </div>
           )}
@@ -209,33 +310,58 @@ export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
                   type="tel"
                   value={mpesaPhone}
                   onChange={(e) => {
-                    setMpesaPhone(e.target.value);
+                    setMpesaPhone(normalizePhoneInput(e.target.value));
                     if (mpesaStage !== "idle") setMpesaStage("idle");
+                    setMpesaReference("");
+                    setMpesaStatusText("");
+                    setMpesaSimulated(false);
+                    stopMpesaPolling();
                   }}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 outline-none focus:border-emerald-500 bg-white"
-                  placeholder="07XXXXXXXX"
+                  placeholder="+2547XXXXXXXX"
                 />
               </label>
 
               {mpesaStage === "idle" && (
                 <button
-                  disabled={mpesaPhone.trim().length < 10 || isProcessing}
-                  onClick={() => setMpesaStage("initiated")}
+                  disabled={mpesaPhone.trim().length !== 13 || isProcessing}
+                  onClick={initiateMpesa}
                   className="w-full bg-emerald-600 disabled:bg-slate-300 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-700"
                 >
-                  Initiate STK Push (Simulated)
+                  Initiate M-Pesa Charge
                 </button>
               )}
 
               {mpesaStage === "initiated" && (
                 <div className="space-y-2">
-                  <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">STK push sent to {mpesaPhone}. Ask customer to confirm on phone, then tap confirm below.</p>
-                  <button
-                    onClick={() => setMpesaStage("confirmed")}
-                    className="w-full bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-800"
-                  >
-                    Confirm Customer Paid
-                  </button>
+                  <p className="text-xs text-amber-700 bg-amber-50 rounded p-2">
+                    {mpesaStatusText || `Charge created for ${mpesaPhone}.`}
+                  </p>
+                  {mpesaReference && (
+                    <p className="text-[11px] text-slate-500 font-mono bg-slate-50 rounded p-2 break-all">Ref: {mpesaReference}</p>
+                  )}
+                  {!mpesaSimulated && (
+                    <>
+                      <p className="text-[11px] text-slate-500">
+                        {mpesaPolling ? "Auto-checking payment every 3 seconds..." : "Auto-check stopped."}
+                      </p>
+                      <button
+                        onClick={() => verifyMpesa(false)}
+                        disabled={isProcessing}
+                        className="w-full bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-800 disabled:bg-slate-300"
+                      >
+                        Check Paystack Confirmation
+                      </button>
+                    </>
+                  )}
+                  {mpesaSimulated && (
+                    <button
+                      onClick={() => setMpesaStage("confirmed")}
+                      className="w-full bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-800"
+                    >
+                      Confirm Customer Paid (Simulated)
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -252,7 +378,7 @@ export const POSScreen: React.FC<{ cashierId: string }> = ({ cashierId }) => {
                 </div>
               )}
 
-              <button onClick={() => { setCheckoutMethod(null); setMpesaStage("idle"); }} className="w-full py-2.5 rounded-xl border border-slate-300 text-slate-600 font-semibold">Back</button>
+              <button onClick={() => { stopMpesaPolling(); setCheckoutMethod(null); setMpesaStage("idle"); setMpesaPhone("+254"); }} className="w-full py-2.5 rounded-xl border border-slate-300 text-slate-600 font-semibold">Back</button>
             </div>
           )}
         </div>

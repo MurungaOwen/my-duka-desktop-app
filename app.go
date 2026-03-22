@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"os"
@@ -39,6 +40,8 @@ type AppSyncStatus struct {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
+	loadDotEnvIfPresent(".env")
+
 	cfg, err := backend.DefaultConfig()
 	if err != nil {
 		return &App{startupErr: err.Error()}
@@ -65,6 +68,40 @@ func NewApp() *App {
 		},
 	}
 	return app
+}
+
+func loadDotEnvIfPresent(path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "export ") {
+			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key := strings.TrimSpace(k)
+		if key == "" || os.Getenv(key) != "" {
+			continue
+		}
+		value := strings.TrimSpace(v)
+		if len(value) >= 2 {
+			if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
+				value = value[1 : len(value)-1]
+			}
+		}
+		_ = os.Setenv(key, value)
+	}
 }
 
 // startup is called when the app starts. The context is saved
@@ -285,6 +322,20 @@ func (a *App) CreateSale(input backend.CreateSaleInput) (backend.SaleDetail, err
 		return backend.SaleDetail{}, errors.New("backend service unavailable")
 	}
 	return a.svc.CreateSale(input)
+}
+
+func (a *App) StartMPesaCharge(input backend.StartMPesaChargeInput) (backend.MPesaChargeSession, error) {
+	if a.svc == nil {
+		return backend.MPesaChargeSession{}, errors.New("backend service unavailable")
+	}
+	return a.svc.StartMPesaCharge(input)
+}
+
+func (a *App) VerifyMPesaCharge(reference string) (backend.MPesaChargeStatus, error) {
+	if a.svc == nil {
+		return backend.MPesaChargeStatus{}, errors.New("backend service unavailable")
+	}
+	return a.svc.VerifyMPesaCharge(reference)
 }
 
 func (a *App) ListSales(limit int64) ([]backend.Sale, error) {

@@ -126,6 +126,29 @@ export type CreateSaleInput = {
   items: SaleItemInput[];
 };
 
+export type StartMPesaChargeInput = {
+  phone: string;
+  amountCents: number;
+  email?: string;
+  reference?: string;
+};
+
+export type MPesaChargeSession = {
+  reference: string;
+  status: string;
+  displayText: string;
+  message: string;
+};
+
+export type MPesaChargeStatus = {
+  reference: string;
+  status: string;
+  paid: boolean;
+  gatewayResponse: string;
+  displayText: string;
+  message: string;
+};
+
 export type Sale = {
   id: string;
   cashierStaffId: string;

@@ -75,14 +75,15 @@ type AppSyncStatus = {
 
 ### `SeedDemoData(): SeedResult`
 
-Populates demo settings, staff, categories, and products for local testing.
-Safe to run multiple times (idempotent by staff/category/product identity checks).
+Populates demo settings, staff, categories, suppliers, products, purchase orders, and sample sales.
+Safe to run multiple times (idempotent).
 
 ```ts
 type DemoCredentials = {
   role: string
   name: string
-  pin: string
+  username: string
+  password: string
   notes: string
 }
 
@@ -90,7 +91,10 @@ type SeedResult = {
   businessName: string
   staffAdded: number
   categoriesAdded: number
+  suppliersAdded: number
   productsAdded: number
+  ordersAdded: number
+  salesAdded: number
   credentials: DemoCredentials[]
 }
 ```
@@ -123,13 +127,15 @@ type Setting = { key: string; value: string }
 ```ts
 type CreateStaffInput = {
   name: string
+  username: string
   role: "admin" | "cashier"
-  pin: string
+  password: string
 }
 
 type Staff = {
   id: string
   name: string
+  username: string
   role: "admin" | "cashier"
   isActive: boolean
   createdAt: string
@@ -139,7 +145,18 @@ type Staff = {
 
 ### `ListStaff(): Staff[]`
 
+### `AuthenticateStaff(input: StaffLoginInput): Staff`
+
+```ts
+type StaffLoginInput = {
+  username: string
+  password: string
+}
+```
+
 ### `VerifyStaffPIN(input: PINVerificationInput): boolean`
+
+Legacy compatibility helper. Uses staff ID + secret string check.
 
 ```ts
 type PINVerificationInput = {
@@ -276,6 +293,46 @@ Behavior:
 - validates stock availability
 - writes sale + line items + stock transactions atomically
 - recomputes stock for affected products
+
+### `StartMPesaCharge(input: StartMPesaChargeInput): MPesaChargeSession`
+
+Creates a Paystack M-Pesa charge (`POST /charge`) for Kenya (`currency: KES`, provider `mpesa`).
+
+```ts
+type StartMPesaChargeInput = {
+  phone: string
+  amountCents: number
+  email?: string
+  reference?: string
+}
+
+type MPesaChargeSession = {
+  reference: string
+  status: string
+  displayText: string
+  message: string
+}
+```
+
+### `VerifyMPesaCharge(reference: string): MPesaChargeStatus`
+
+Checks charge state from Paystack (primary: `GET /transaction/verify/:reference`, fallback: `GET /charge/:reference`).
+
+```ts
+type MPesaChargeStatus = {
+  reference: string
+  status: string
+  paid: boolean
+  gatewayResponse: string
+  displayText: string
+  message: string
+}
+```
+
+Configuration:
+- `PAYSTACK_SECRET_KEY` env var (preferred), or setting key `paystack_secret_key`
+- `PAYSTACK_POS_EMAIL` env var (required for POS charge requests), or setting key `paystack_pos_email`
+- optional: `PAYSTACK_BASE_URL` (default `https://api.paystack.co`)
 
 ### `ListSales(limit: number): Sale[]`
 
@@ -445,10 +502,11 @@ For all unknown errors:
    - call `StartupStatus()`
    - call `BackendHealth()`
    - call `GetSyncStatus()`
-2. On login/payment:
-   - call `VerifyStaffPIN()`
+2. On login:
+   - call `AuthenticateStaff()`
 3. For POS page:
    - call `ListCategories()`, `ListProducts()`
+   - for M-Pesa: call `StartMPesaCharge()` then poll/call `VerifyMPesaCharge()`
    - call `CreateSale()`
 4. For admin inventory:
    - call `ListProducts()`, `AdjustStock()`, `ListLowStockProducts()`
