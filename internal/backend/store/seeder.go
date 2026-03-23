@@ -3,6 +3,8 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,25 +42,29 @@ type seedProduct struct {
 	ReorderLevel  int64
 }
 
+type seedOptions struct {
+	Settings       bool
+	Users          bool
+	Categories     bool
+	Suppliers      bool
+	Products       bool
+	PurchaseOrders bool
+	Sales          bool
+}
+
 func (s *Service) SeedDemoData() (SeedResult, error) {
 	db, err := s.getDB()
 	if err != nil {
 		return SeedResult{}, err
 	}
+	opts := seedOptionsFromEnv()
 
 	tx, err := db.Begin()
 	if err != nil {
 		return SeedResult{}, fmt.Errorf("begin seed transaction: %w", err)
 	}
 
-	result := SeedResult{
-		BusinessName: "MyDuka Demo Shop",
-		Credentials: []DemoCredentials{
-			{Role: "admin", Name: "Owner", Username: "owner", Password: "owner1234", Notes: "Full access"},
-			{Role: "cashier", Name: "Alice", Username: "alice", Password: "alice1234", Notes: "POS access"},
-			{Role: "cashier", Name: "Brian", Username: "brian", Password: "brian1234", Notes: "POS access"},
-		},
-	}
+	result := SeedResult{BusinessName: "MyDuka Demo Shop"}
 
 	settings := []Setting{
 		{Key: "business_name", Value: result.BusinessName},
@@ -67,10 +73,12 @@ func (s *Service) SeedDemoData() (SeedResult, error) {
 		{Key: "vat_rate", Value: "16"},
 		{Key: "industry", Value: "general_retail"},
 	}
-	for _, kv := range settings {
-		if err := s.upsertSettingTx(tx, kv); err != nil {
-			_ = tx.Rollback()
-			return SeedResult{}, err
+	if opts.Settings {
+		for _, kv := range settings {
+			if err := s.upsertSettingTx(tx, kv); err != nil {
+				_ = tx.Rollback()
+				return SeedResult{}, err
+			}
 		}
 	}
 
@@ -79,14 +87,21 @@ func (s *Service) SeedDemoData() (SeedResult, error) {
 		{Name: "Alice", Username: "alice", Role: "cashier", Password: "alice1234"},
 		{Name: "Brian", Username: "brian", Role: "cashier", Password: "brian1234"},
 	}
-	for _, seed := range staffSeeds {
-		added, err := s.seedStaffTx(tx, seed)
-		if err != nil {
-			_ = tx.Rollback()
-			return SeedResult{}, err
+	if opts.Users {
+		result.Credentials = []DemoCredentials{
+			{Role: "admin", Name: "Owner", Username: "owner", Password: "owner1234", Notes: "Full access"},
+			{Role: "cashier", Name: "Alice", Username: "alice", Password: "alice1234", Notes: "POS access"},
+			{Role: "cashier", Name: "Brian", Username: "brian", Password: "brian1234", Notes: "POS access"},
 		}
-		if added {
-			result.StaffAdded++
+		for _, seed := range staffSeeds {
+			added, err := s.seedStaffTx(tx, seed)
+			if err != nil {
+				_ = tx.Rollback()
+				return SeedResult{}, err
+			}
+			if added {
+				result.StaffAdded++
+			}
 		}
 	}
 
@@ -98,15 +113,26 @@ func (s *Service) SeedDemoData() (SeedResult, error) {
 	}
 
 	categoryIDs := make(map[string]string, len(categorySeeds))
-	for idx, seed := range categorySeeds {
-		catID, added, err := s.seedCategoryTx(tx, seed, int64(idx+1))
+	if opts.Categories {
+		for idx, seed := range categorySeeds {
+			catID, added, err := s.seedCategoryTx(tx, seed, int64(idx+1))
+			if err != nil {
+				_ = tx.Rollback()
+				return SeedResult{}, err
+			}
+			categoryIDs[seed.Name] = catID
+			if added {
+				result.CategoriesAdded++
+			}
+		}
+	} else {
+		ids, err := s.resolveCategoryIDsByNameTx(tx, categorySeeds)
 		if err != nil {
 			_ = tx.Rollback()
 			return SeedResult{}, err
 		}
-		categoryIDs[seed.Name] = catID
-		if added {
-			result.CategoriesAdded++
+		for k, v := range ids {
+			categoryIDs[k] = v
 		}
 	}
 
@@ -117,15 +143,26 @@ func (s *Service) SeedDemoData() (SeedResult, error) {
 	}
 
 	supplierIDs := make(map[string]string, len(supplierSeeds))
-	for _, seed := range supplierSeeds {
-		supplierID, added, err := s.seedSupplierTx(tx, seed)
+	if opts.Suppliers {
+		for _, seed := range supplierSeeds {
+			supplierID, added, err := s.seedSupplierTx(tx, seed)
+			if err != nil {
+				_ = tx.Rollback()
+				return SeedResult{}, err
+			}
+			supplierIDs[seed.Name] = supplierID
+			if added {
+				result.SuppliersAdded++
+			}
+		}
+	} else {
+		ids, err := s.resolveSupplierIDsByNameTx(tx, supplierSeeds)
 		if err != nil {
 			_ = tx.Rollback()
 			return SeedResult{}, err
 		}
-		supplierIDs[seed.Name] = supplierID
-		if added {
-			result.SuppliersAdded++
+		for k, v := range ids {
+			supplierIDs[k] = v
 		}
 	}
 
@@ -142,35 +179,42 @@ func (s *Service) SeedDemoData() (SeedResult, error) {
 		{Name: "Bath Soap", SKU: "PRC-SOAP-001", Barcode: "616110000402", CategoryName: "Personal Care", SupplierName: "Prime Care Supplies", PriceCents: 8500, StartingStock: 25, ReorderLevel: 7},
 	}
 
-	for _, seed := range productSeeds {
-		categoryID := categoryIDs[seed.CategoryName]
-		if categoryID == "" {
-			_ = tx.Rollback()
-			return SeedResult{}, fmt.Errorf("missing category id for %s", seed.CategoryName)
-		}
-		supplierID := supplierIDs[seed.SupplierName]
-		if supplierID == "" {
-			_ = tx.Rollback()
-			return SeedResult{}, fmt.Errorf("missing supplier id for %s", seed.SupplierName)
-		}
-		added, err := s.seedProductTx(tx, seed, categoryID, supplierID)
-		if err != nil {
-			_ = tx.Rollback()
-			return SeedResult{}, err
-		}
-		if added {
-			result.ProductsAdded++
+	if opts.Products {
+		for _, seed := range productSeeds {
+			categoryID := categoryIDs[seed.CategoryName]
+			if categoryID == "" {
+				_ = tx.Rollback()
+				return SeedResult{}, fmt.Errorf("missing category id for %s", seed.CategoryName)
+			}
+			supplierID := supplierIDs[seed.SupplierName]
+			if supplierID == "" {
+				_ = tx.Rollback()
+				return SeedResult{}, fmt.Errorf("missing supplier id for %s", seed.SupplierName)
+			}
+			added, err := s.seedProductTx(tx, seed, categoryID, supplierID)
+			if err != nil {
+				_ = tx.Rollback()
+				return SeedResult{}, err
+			}
+			if added {
+				result.ProductsAdded++
+			}
 		}
 	}
 
-	for supplierName, supplierID := range supplierIDs {
-		added, err := s.seedPurchaseOrderTx(tx, supplierID, supplierName)
-		if err != nil {
-			_ = tx.Rollback()
-			return SeedResult{}, err
-		}
-		if added {
-			result.OrdersAdded++
+	if opts.PurchaseOrders {
+		for supplierName, supplierID := range supplierIDs {
+			if supplierID == "" {
+				continue
+			}
+			added, err := s.seedPurchaseOrderTx(tx, supplierID, supplierName)
+			if err != nil {
+				_ = tx.Rollback()
+				return SeedResult{}, err
+			}
+			if added {
+				result.OrdersAdded++
+			}
 		}
 	}
 
@@ -178,13 +222,77 @@ func (s *Service) SeedDemoData() (SeedResult, error) {
 		return SeedResult{}, fmt.Errorf("commit seed transaction: %w", err)
 	}
 
-	salesAdded, err := s.seedSalesData()
-	if err != nil {
-		return SeedResult{}, err
+	if opts.Sales {
+		salesAdded, err := s.seedSalesData()
+		if err != nil {
+			return SeedResult{}, err
+		}
+		result.SalesAdded = salesAdded
 	}
-	result.SalesAdded = salesAdded
 
 	return result, nil
+}
+
+func seedOptionsFromEnv() seedOptions {
+	return seedOptions{
+		Settings:       envBoolWithDefault("MYDUKA_SEED_SETTINGS", true),
+		Users:          envBoolWithDefault("MYDUKA_SEED_USERS", true),
+		Categories:     envBoolWithDefault("MYDUKA_SEED_CATEGORIES", true),
+		Suppliers:      envBoolWithDefault("MYDUKA_SEED_SUPPLIERS", true),
+		Products:       envBoolWithDefault("MYDUKA_SEED_PRODUCTS", true),
+		PurchaseOrders: envBoolWithDefault("MYDUKA_SEED_PURCHASE_ORDERS", true),
+		Sales:          envBoolWithDefault("MYDUKA_SEED_SALES", true),
+	}
+}
+
+func envBoolWithDefault(key string, defaultValue bool) bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if raw == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseBool(raw)
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
+}
+
+func (s *Service) resolveCategoryIDsByNameTx(tx *sql.Tx, seeds []seedCategory) (map[string]string, error) {
+	out := make(map[string]string, len(seeds))
+	for _, seed := range seeds {
+		var id string
+		err := tx.QueryRow(
+			`SELECT id FROM categories WHERE LOWER(name) = LOWER(?) AND deleted_at IS NULL LIMIT 1`,
+			seed.Name,
+		).Scan(&id)
+		if err == nil {
+			out[seed.Name] = id
+			continue
+		}
+		if err != sql.ErrNoRows {
+			return nil, fmt.Errorf("resolve category id for %s: %w", seed.Name, err)
+		}
+	}
+	return out, nil
+}
+
+func (s *Service) resolveSupplierIDsByNameTx(tx *sql.Tx, seeds []seedSupplier) (map[string]string, error) {
+	out := make(map[string]string, len(seeds))
+	for _, seed := range seeds {
+		var id string
+		err := tx.QueryRow(
+			`SELECT id FROM suppliers WHERE LOWER(name) = LOWER(?) AND deleted_at IS NULL LIMIT 1`,
+			seed.Name,
+		).Scan(&id)
+		if err == nil {
+			out[seed.Name] = id
+			continue
+		}
+		if err != sql.ErrNoRows {
+			return nil, fmt.Errorf("resolve supplier id for %s: %w", seed.Name, err)
+		}
+	}
+	return out, nil
 }
 
 type seedSale struct {

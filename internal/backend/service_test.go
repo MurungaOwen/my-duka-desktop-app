@@ -613,6 +613,46 @@ func TestSeedDemoData(t *testing.T) {
 	}
 }
 
+func TestSeedDemoDataUsersOnlyViaEnv(t *testing.T) {
+	t.Setenv("MYDUKA_SEED_SETTINGS", "false")
+	t.Setenv("MYDUKA_SEED_USERS", "true")
+	t.Setenv("MYDUKA_SEED_CATEGORIES", "false")
+	t.Setenv("MYDUKA_SEED_SUPPLIERS", "false")
+	t.Setenv("MYDUKA_SEED_PRODUCTS", "false")
+	t.Setenv("MYDUKA_SEED_PURCHASE_ORDERS", "false")
+	t.Setenv("MYDUKA_SEED_SALES", "false")
+
+	svc := setupTestService(t)
+
+	result, err := svc.SeedDemoData()
+	if err != nil {
+		t.Fatalf("seed users-only data: %v", err)
+	}
+	if result.StaffAdded == 0 {
+		t.Fatalf("expected seeded staff when users-only mode enabled")
+	}
+	if result.CategoriesAdded != 0 || result.ProductsAdded != 0 || result.SalesAdded != 0 {
+		t.Fatalf("expected non-user seed groups to be skipped, got categories=%d products=%d sales=%d",
+			result.CategoriesAdded, result.ProductsAdded, result.SalesAdded)
+	}
+
+	staff, err := svc.ListStaff()
+	if err != nil {
+		t.Fatalf("list staff: %v", err)
+	}
+	if len(staff) < 3 {
+		t.Fatalf("expected at least 3 seeded staff, got %d", len(staff))
+	}
+
+	products, err := svc.ListProducts()
+	if err != nil {
+		t.Fatalf("list products: %v", err)
+	}
+	if len(products) != 0 {
+		t.Fatalf("expected no products seeded in users-only mode, got %d", len(products))
+	}
+}
+
 func TestSeedDemoDataIsIdempotent(t *testing.T) {
 	svc := setupTestService(t)
 
