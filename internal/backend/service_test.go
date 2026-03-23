@@ -653,6 +653,37 @@ func TestSeedDemoDataUsersOnlyViaEnv(t *testing.T) {
 	}
 }
 
+func TestSeedUsersOnly(t *testing.T) {
+	svc := setupTestService(t)
+
+	result, err := svc.SeedUsersOnly()
+	if err != nil {
+		t.Fatalf("seed users only: %v", err)
+	}
+	if result.StaffAdded == 0 {
+		t.Fatalf("expected staff to be seeded in users-only mode")
+	}
+	if result.ProductsAdded != 0 || result.SalesAdded != 0 || result.CategoriesAdded != 0 {
+		t.Fatalf("expected non-user entities to remain unseeded")
+	}
+
+	products, err := svc.ListProducts()
+	if err != nil {
+		t.Fatalf("list products: %v", err)
+	}
+	if len(products) != 0 {
+		t.Fatalf("expected zero products after users-only seed, got %d", len(products))
+	}
+
+	sales, err := svc.ListSales(10)
+	if err != nil {
+		t.Fatalf("list sales: %v", err)
+	}
+	if len(sales) != 0 {
+		t.Fatalf("expected zero sales after users-only seed, got %d", len(sales))
+	}
+}
+
 func TestSeedDemoDataIsIdempotent(t *testing.T) {
 	svc := setupTestService(t)
 

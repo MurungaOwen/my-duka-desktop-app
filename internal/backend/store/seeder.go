@@ -233,6 +233,50 @@ func (s *Service) SeedDemoData() (SeedResult, error) {
 	return result, nil
 }
 
+func (s *Service) SeedUsersOnly() (SeedResult, error) {
+	db, err := s.getDB()
+	if err != nil {
+		return SeedResult{}, err
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return SeedResult{}, fmt.Errorf("begin users-only seed transaction: %w", err)
+	}
+
+	result := SeedResult{
+		BusinessName: "MyDuka Demo Shop",
+		Credentials: []DemoCredentials{
+			{Role: "admin", Name: "Owner", Username: "owner", Password: "owner1234", Notes: "Full access"},
+			{Role: "cashier", Name: "Alice", Username: "alice", Password: "alice1234", Notes: "POS access"},
+			{Role: "cashier", Name: "Brian", Username: "brian", Password: "brian1234", Notes: "POS access"},
+		},
+	}
+
+	staffSeeds := []seedStaff{
+		{Name: "Owner", Username: "owner", Role: "admin", Password: "owner1234"},
+		{Name: "Alice", Username: "alice", Role: "cashier", Password: "alice1234"},
+		{Name: "Brian", Username: "brian", Role: "cashier", Password: "brian1234"},
+	}
+
+	for _, seed := range staffSeeds {
+		added, err := s.seedStaffTx(tx, seed)
+		if err != nil {
+			_ = tx.Rollback()
+			return SeedResult{}, err
+		}
+		if added {
+			result.StaffAdded++
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return SeedResult{}, fmt.Errorf("commit users-only seed transaction: %w", err)
+	}
+
+	return result, nil
+}
+
 func seedOptionsFromEnv() seedOptions {
 	return seedOptions{
 		Settings:       envBoolWithDefault("MYDUKA_SEED_SETTINGS", true),

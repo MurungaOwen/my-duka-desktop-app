@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,7 +41,7 @@ type AppSyncStatus struct {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	loadDotEnvIfPresent(".env")
+	loadDotEnvFromDefaultLocations()
 
 	cfg, err := backend.DefaultConfig()
 	if err != nil {
@@ -104,6 +105,35 @@ func loadDotEnvIfPresent(path string) {
 	}
 }
 
+func loadDotEnvFromDefaultLocations() {
+	seen := map[string]struct{}{}
+
+	addCandidate := func(path string) {
+		clean := filepath.Clean(path)
+		if _, ok := seen[clean]; ok {
+			return
+		}
+		seen[clean] = struct{}{}
+		loadDotEnvIfPresent(clean)
+	}
+
+	addCandidate(".env")
+
+	exePath, err := os.Executable()
+	if err != nil {
+		return
+	}
+	exeDir := filepath.Dir(exePath)
+	addCandidate(filepath.Join(exeDir, ".env"))
+
+	// Common dev/build case: binary in build/bin and .env in project root.
+	dir := exeDir
+	for i := 0; i < 4; i++ {
+		dir = filepath.Dir(dir)
+		addCandidate(filepath.Join(dir, ".env"))
+	}
+}
+
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
@@ -115,9 +145,27 @@ func (a *App) startup(ctx context.Context) {
 		a.startupErr = err.Error()
 		return
 	}
+	a.autoSeedIfNeeded()
 
 	if a.cfg.Mode == backend.DeploymentModeLANSync {
 		a.startSyncEngine(ctx)
+	}
+}
+
+func (a *App) autoSeedIfNeeded() {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("MYDUKA_AUTO_SEED")), "false") {
+		return
+	}
+	staff, err := a.svc.ListStaff()
+	if err != nil {
+		a.startupErr = "auto-seed check failed: " + err.Error()
+		return
+	}
+	if len(staff) > 0 {
+		return
+	}
+	if _, err := a.svc.SeedUsersOnly(); err != nil {
+		a.startupErr = "auto-seed failed: " + err.Error()
 	}
 }
 

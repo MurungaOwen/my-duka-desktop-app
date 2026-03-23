@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"inventory-desktop/internal/backend"
 )
@@ -21,6 +22,8 @@ func main() {
 	}
 	if *dbPath != "" {
 		cfg.DBPath = *dbPath
+	} else if envDBPath := strings.TrimSpace(os.Getenv("MYDUKA_DB_PATH")); envDBPath != "" {
+		cfg.DBPath = envDBPath
 	}
 	cfg.Mode = backend.DeploymentMode(*mode)
 
