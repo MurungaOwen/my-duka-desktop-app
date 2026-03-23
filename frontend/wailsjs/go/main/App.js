@@ -42,6 +42,14 @@ export function DashboardSummary() {
   return window['go']['main']['App']['DashboardSummary']();
 }
 
+export function DeleteCategory(arg1) {
+  return window['go']['main']['App']['DeleteCategory'](arg1);
+}
+
+export function DeleteProduct(arg1) {
+  return window['go']['main']['App']['DeleteProduct'](arg1);
+}
+
 export function GetSaleDetail(arg1) {
   return window['go']['main']['App']['GetSaleDetail'](arg1);
 }
@@ -100,6 +108,14 @@ export function StartMPesaCharge(arg1) {
 
 export function StartupStatus() {
   return window['go']['main']['App']['StartupStatus']();
+}
+
+export function UpdateCategory(arg1) {
+  return window['go']['main']['App']['UpdateCategory'](arg1);
+}
+
+export function UpdateProduct(arg1) {
+  return window['go']['main']['App']['UpdateProduct'](arg1);
 }
 
 export function UpsertSetting(arg1) {

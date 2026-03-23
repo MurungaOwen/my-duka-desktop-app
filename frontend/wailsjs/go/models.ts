@@ -683,6 +683,50 @@ export namespace store {
 	        this.createdAt = source["createdAt"];
 	    }
 	}
+	export class UpdateCategoryInput {
+	    id: string;
+	    name: string;
+	    emoji: string;
+	    displayOrder: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateCategoryInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.emoji = source["emoji"];
+	        this.displayOrder = source["displayOrder"];
+	    }
+	}
+	export class UpdateProductInput {
+	    id: string;
+	    name: string;
+	    sku: string;
+	    barcode: string;
+	    categoryId: string;
+	    priceCents: number;
+	    reorderLevel: number;
+	    isActive: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateProductInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.sku = source["sku"];
+	        this.barcode = source["barcode"];
+	        this.categoryId = source["categoryId"];
+	        this.priceCents = source["priceCents"];
+	        this.reorderLevel = source["reorderLevel"];
+	        this.isActive = source["isActive"];
+	    }
+	}
 
 }
 

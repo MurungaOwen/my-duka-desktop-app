@@ -397,6 +397,125 @@ ORDER BY display_order ASC, name ASC
 	return out, nil
 }
 
+func (s *Service) UpdateCategory(input UpdateCategoryInput) (Category, error) {
+	db, err := s.getDB()
+	if err != nil {
+		return Category{}, err
+	}
+
+	id := strings.TrimSpace(input.ID)
+	name := strings.TrimSpace(input.Name)
+	if id == "" {
+		return Category{}, errors.New("category id is required")
+	}
+	if name == "" {
+		return Category{}, errors.New("category name is required")
+	}
+
+	var current Category
+	err = db.QueryRow(`
+SELECT id, name, emoji, display_order, created_at, updated_at
+FROM categories
+WHERE id = ? AND deleted_at IS NULL
+`, id).Scan(
+		&current.ID,
+		&current.Name,
+		&current.Emoji,
+		&current.DisplayOrder,
+		&current.CreatedAt,
+		&current.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Category{}, errors.New("category not found")
+		}
+		return Category{}, fmt.Errorf("load category: %w", err)
+	}
+
+	updated := current
+	updated.Name = name
+	updated.Emoji = strings.TrimSpace(input.Emoji)
+	updated.DisplayOrder = input.DisplayOrder
+	updated.UpdatedAt = nowTS()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return Category{}, fmt.Errorf("begin update category transaction: %w", err)
+	}
+
+	_, err = tx.Exec(`
+UPDATE categories
+SET name = ?, emoji = ?, display_order = ?, updated_at = ?, device_id = ?, synced_at = NULL
+WHERE id = ? AND deleted_at IS NULL
+`, updated.Name, updated.Emoji, updated.DisplayOrder, updated.UpdatedAt, s.cfg.DeviceID, updated.ID)
+	if err != nil {
+		_ = tx.Rollback()
+		return Category{}, fmt.Errorf("update category: %w", err)
+	}
+
+	if err := s.appendSyncLogTx(tx, "categories", updated.ID, "upsert", updated); err != nil {
+		_ = tx.Rollback()
+		return Category{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Category{}, fmt.Errorf("commit update category transaction: %w", err)
+	}
+	return updated, nil
+}
+
+func (s *Service) DeleteCategory(categoryID string) error {
+	db, err := s.getDB()
+	if err != nil {
+		return err
+	}
+
+	categoryID = strings.TrimSpace(categoryID)
+	if categoryID == "" {
+		return errors.New("category id is required")
+	}
+
+	now := nowTS()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin delete category transaction: %w", err)
+	}
+
+	res, err := tx.Exec(`
+UPDATE categories
+SET deleted_at = ?, updated_at = ?, device_id = ?, synced_at = NULL
+WHERE id = ? AND deleted_at IS NULL
+`, now, now, s.cfg.DeviceID, categoryID)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("delete category: %w", err)
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("delete category rows affected: %w", err)
+	}
+	if affected == 0 {
+		_ = tx.Rollback()
+		return errors.New("category not found")
+	}
+
+	if err := s.appendSyncLogTx(tx, "categories", categoryID, "delete", map[string]any{
+		"id":        categoryID,
+		"deletedAt": now,
+	}); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete category transaction: %w", err)
+	}
+	return nil
+}
+
 func (s *Service) CreateProduct(input CreateProductInput) (Product, error) {
 	db, err := s.getDB()
 	if err != nil {
@@ -519,6 +638,168 @@ ORDER BY name ASC
 		return nil, fmt.Errorf("iterate products: %w", err)
 	}
 	return out, nil
+}
+
+func (s *Service) UpdateProduct(input UpdateProductInput) (Product, error) {
+	db, err := s.getDB()
+	if err != nil {
+		return Product{}, err
+	}
+
+	id := strings.TrimSpace(input.ID)
+	if id == "" {
+		return Product{}, errors.New("product id is required")
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return Product{}, errors.New("product name is required")
+	}
+	if input.PriceCents < 0 {
+		return Product{}, errors.New("price cannot be negative")
+	}
+	if input.ReorderLevel < 0 {
+		return Product{}, errors.New("reorder level cannot be negative")
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return Product{}, fmt.Errorf("begin update product transaction: %w", err)
+	}
+
+	var current Product
+	var activeInt int
+	err = tx.QueryRow(
+		`SELECT id, name, COALESCE(sku,''), COALESCE(barcode,''), COALESCE(category_id,''), price_cents, starting_stock, stock_qty, reorder_level, is_active, created_at, updated_at
+		 FROM products
+		 WHERE id = ? AND deleted_at IS NULL`,
+		id,
+	).Scan(
+		&current.ID,
+		&current.Name,
+		&current.SKU,
+		&current.Barcode,
+		&current.CategoryID,
+		&current.PriceCents,
+		&current.StartingStock,
+		&current.StockQty,
+		&current.ReorderLevel,
+		&activeInt,
+		&current.CreatedAt,
+		&current.UpdatedAt,
+	)
+	if err != nil {
+		_ = tx.Rollback()
+		if errors.Is(err, sql.ErrNoRows) {
+			return Product{}, errors.New("product not found")
+		}
+		return Product{}, fmt.Errorf("query product: %w", err)
+	}
+	current.IsActive = activeInt == 1
+
+	updated := current
+	updated.Name = name
+	updated.SKU = strings.TrimSpace(input.SKU)
+	updated.Barcode = strings.TrimSpace(input.Barcode)
+	updated.CategoryID = strings.TrimSpace(input.CategoryID)
+	updated.PriceCents = input.PriceCents
+	updated.ReorderLevel = input.ReorderLevel
+	updated.IsActive = input.IsActive
+	updated.UpdatedAt = nowTS()
+
+	var categoryID any = nil
+	if updated.CategoryID != "" {
+		categoryID = updated.CategoryID
+	}
+	active := 0
+	if updated.IsActive {
+		active = 1
+	}
+
+	_, err = tx.Exec(
+		`UPDATE products
+		 SET name = ?, sku = ?, barcode = ?, category_id = ?, price_cents = ?, reorder_level = ?, is_active = ?, updated_at = ?, device_id = ?, synced_at = NULL
+		 WHERE id = ? AND deleted_at IS NULL`,
+		updated.Name,
+		nullableString(updated.SKU),
+		nullableString(updated.Barcode),
+		categoryID,
+		updated.PriceCents,
+		updated.ReorderLevel,
+		active,
+		updated.UpdatedAt,
+		s.cfg.DeviceID,
+		updated.ID,
+	)
+	if err != nil {
+		_ = tx.Rollback()
+		return Product{}, fmt.Errorf("update product: %w", err)
+	}
+
+	if err := s.appendSyncLogTx(tx, "products", updated.ID, "upsert", updated); err != nil {
+		_ = tx.Rollback()
+		return Product{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Product{}, fmt.Errorf("commit update product transaction: %w", err)
+	}
+	return updated, nil
+}
+
+func (s *Service) DeleteProduct(productID string) error {
+	db, err := s.getDB()
+	if err != nil {
+		return err
+	}
+
+	id := strings.TrimSpace(productID)
+	if id == "" {
+		return errors.New("product id is required")
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin delete product transaction: %w", err)
+	}
+
+	var exists int
+	if err := tx.QueryRow(`SELECT COUNT(1) FROM products WHERE id = ? AND deleted_at IS NULL`, id).Scan(&exists); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("check product existence: %w", err)
+	}
+	if exists == 0 {
+		_ = tx.Rollback()
+		return errors.New("product not found")
+	}
+
+	now := nowTS()
+	_, err = tx.Exec(
+		`UPDATE products
+		 SET deleted_at = ?, updated_at = ?, is_active = 0, device_id = ?, synced_at = NULL
+		 WHERE id = ? AND deleted_at IS NULL`,
+		now,
+		now,
+		s.cfg.DeviceID,
+		id,
+	)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("soft delete product: %w", err)
+	}
+
+	if err := s.appendSyncLogTx(tx, "products", id, "delete", map[string]any{
+		"id":        id,
+		"updatedAt": now,
+		"deletedAt": now,
+	}); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete product transaction: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) upsertSettingTx(tx *sql.Tx, setting Setting) error {

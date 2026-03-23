@@ -54,6 +54,13 @@ type CreateCategoryInput struct {
 	DisplayOrder int64  `json:"displayOrder"`
 }
 
+type UpdateCategoryInput struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Emoji        string `json:"emoji"`
+	DisplayOrder int64  `json:"displayOrder"`
+}
+
 type Category struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
@@ -71,6 +78,17 @@ type CreateProductInput struct {
 	PriceCents    int64  `json:"priceCents"`
 	StartingStock int64  `json:"startingStock"`
 	ReorderLevel  int64  `json:"reorderLevel"`
+}
+
+type UpdateProductInput struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	SKU          string `json:"sku"`
+	Barcode      string `json:"barcode"`
+	CategoryID   string `json:"categoryId"`
+	PriceCents   int64  `json:"priceCents"`
+	ReorderLevel int64  `json:"reorderLevel"`
+	IsActive     bool   `json:"isActive"`
 }
 
 type Product struct {

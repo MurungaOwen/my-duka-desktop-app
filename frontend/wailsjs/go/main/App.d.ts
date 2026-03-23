@@ -23,6 +23,10 @@ export function CreateStaff(arg1:store.CreateStaffInput):Promise<store.Staff>;
 
 export function DashboardSummary():Promise<store.DashboardSummary>;
 
+export function DeleteCategory(arg1:string):Promise<void>;
+
+export function DeleteProduct(arg1:string):Promise<void>;
+
 export function GetSaleDetail(arg1:string):Promise<store.SaleDetail>;
 
 export function GetSyncStatus():Promise<main.AppSyncStatus>;
@@ -52,6 +56,10 @@ export function SeedDemoData():Promise<store.SeedResult>;
 export function StartMPesaCharge(arg1:store.StartMPesaChargeInput):Promise<store.MPesaChargeSession>;
 
 export function StartupStatus():Promise<string>;
+
+export function UpdateCategory(arg1:store.UpdateCategoryInput):Promise<store.Category>;
+
+export function UpdateProduct(arg1:store.UpdateProductInput):Promise<store.Product>;
 
 export function UpsertSetting(arg1:store.Setting):Promise<void>;
 

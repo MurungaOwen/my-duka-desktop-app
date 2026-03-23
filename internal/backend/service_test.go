@@ -277,6 +277,104 @@ func TestCreateSaleInsufficientStock(t *testing.T) {
 	}
 }
 
+func TestUpdateAndDeleteCategory(t *testing.T) {
+	svc := setupTestService(t)
+
+	category, err := svc.CreateCategory(CreateCategoryInput{
+		Name:         "Groceries",
+		Emoji:        "🛒",
+		DisplayOrder: 1,
+	})
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+
+	updated, err := svc.UpdateCategory(UpdateCategoryInput{
+		ID:           category.ID,
+		Name:         "Dry Groceries",
+		Emoji:        "🥫",
+		DisplayOrder: 3,
+	})
+	if err != nil {
+		t.Fatalf("update category: %v", err)
+	}
+	if updated.Name != "Dry Groceries" {
+		t.Fatalf("expected updated category name, got %s", updated.Name)
+	}
+
+	list, err := svc.ListCategories()
+	if err != nil {
+		t.Fatalf("list categories: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 category, got %d", len(list))
+	}
+	if list[0].Name != "Dry Groceries" {
+		t.Fatalf("expected updated category in list, got %s", list[0].Name)
+	}
+
+	if err := svc.DeleteCategory(category.ID); err != nil {
+		t.Fatalf("delete category: %v", err)
+	}
+
+	listAfterDelete, err := svc.ListCategories()
+	if err != nil {
+		t.Fatalf("list categories after delete: %v", err)
+	}
+	if len(listAfterDelete) != 0 {
+		t.Fatalf("expected no categories after delete, got %d", len(listAfterDelete))
+	}
+}
+
+func TestUpdateAndDeleteProduct(t *testing.T) {
+	svc := setupTestService(t)
+
+	product, err := svc.CreateProduct(CreateProductInput{
+		Name:          "Original Name",
+		SKU:           "ORIG-001",
+		Barcode:       "1234567890",
+		PriceCents:    1000,
+		StartingStock: 5,
+		ReorderLevel:  2,
+	})
+	if err != nil {
+		t.Fatalf("create product: %v", err)
+	}
+
+	updated, err := svc.UpdateProduct(UpdateProductInput{
+		ID:           product.ID,
+		Name:         "Updated Name",
+		SKU:          "UPD-001",
+		Barcode:      "99887766",
+		PriceCents:   2500,
+		ReorderLevel: 3,
+		IsActive:     true,
+	})
+	if err != nil {
+		t.Fatalf("update product: %v", err)
+	}
+	if updated.Name != "Updated Name" {
+		t.Fatalf("expected updated name, got %s", updated.Name)
+	}
+	if updated.PriceCents != 2500 {
+		t.Fatalf("expected updated price 2500, got %d", updated.PriceCents)
+	}
+
+	if err := svc.DeleteProduct(product.ID); err != nil {
+		t.Fatalf("delete product: %v", err)
+	}
+
+	list, err := svc.ListProducts()
+	if err != nil {
+		t.Fatalf("list products: %v", err)
+	}
+	for _, p := range list {
+		if p.ID == product.ID {
+			t.Fatalf("expected deleted product to be excluded from list")
+		}
+	}
+}
+
 func TestCreateSaleRejectsDuplicatePaymentReference(t *testing.T) {
 	svc := setupTestService(t)
 

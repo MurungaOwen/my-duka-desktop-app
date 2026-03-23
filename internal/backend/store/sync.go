@@ -223,6 +223,29 @@ func (s *Service) applySingleMutationTx(tx *sql.Tx, sourceDeviceID string, m Syn
 		createdAt = nowTS()
 	}
 
+	if operation == "delete" {
+		switch tableName {
+		case "products", "categories", "staff", "sales", "sale_items", "stock_transactions", "purchase_orders", "suppliers":
+			if recordID == "" {
+				return fmt.Errorf("delete mutation missing record id for table %s", tableName)
+			}
+			query := fmt.Sprintf(`UPDATE %s SET deleted_at = ?, updated_at = ?, device_id = ? WHERE id = ?`, tableName)
+			if _, err := tx.Exec(query, createdAt, createdAt, sourceDeviceID, recordID); err != nil {
+				return fmt.Errorf("apply delete mutation for %s/%s: %w", tableName, recordID, err)
+			}
+			if tableName == "stock_transactions" {
+				var productID string
+				_ = tx.QueryRow(`SELECT product_id FROM stock_transactions WHERE id = ?`, recordID).Scan(&productID)
+				if productID != "" {
+					affectedProducts[productID] = struct{}{}
+				}
+			}
+		default:
+			return fmt.Errorf("unsupported delete mutation table: %s", tableName)
+		}
+		return nil
+	}
+
 	switch tableName {
 	case "settings":
 		var p struct {

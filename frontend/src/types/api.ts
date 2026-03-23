@@ -66,6 +66,13 @@ export type CreateCategoryInput = {
   displayOrder: number;
 };
 
+export type UpdateCategoryInput = {
+  id: string;
+  name: string;
+  emoji: string;
+  displayOrder: number;
+};
+
 export type Category = {
   id: string;
   name: string;
@@ -83,6 +90,17 @@ export type CreateProductInput = {
   priceCents: number;
   startingStock: number;
   reorderLevel: number;
+};
+
+export type UpdateProductInput = {
+  id: string;
+  name: string;
+  sku: string;
+  barcode: string;
+  categoryId: string;
+  priceCents: number;
+  reorderLevel: number;
+  isActive: boolean;
 };
 
 export type Product = {

@@ -289,6 +289,20 @@ func (a *App) CreateCategory(input backend.CreateCategoryInput) (backend.Categor
 	return a.svc.CreateCategory(input)
 }
 
+func (a *App) UpdateCategory(input backend.UpdateCategoryInput) (backend.Category, error) {
+	if a.svc == nil {
+		return backend.Category{}, errors.New("backend service unavailable")
+	}
+	return a.svc.UpdateCategory(input)
+}
+
+func (a *App) DeleteCategory(categoryID string) error {
+	if a.svc == nil {
+		return errors.New("backend service unavailable")
+	}
+	return a.svc.DeleteCategory(categoryID)
+}
+
 func (a *App) ListCategories() ([]backend.Category, error) {
 	if a.svc == nil {
 		return nil, errors.New("backend service unavailable")
@@ -301,6 +315,20 @@ func (a *App) CreateProduct(input backend.CreateProductInput) (backend.Product, 
 		return backend.Product{}, errors.New("backend service unavailable")
 	}
 	return a.svc.CreateProduct(input)
+}
+
+func (a *App) UpdateProduct(input backend.UpdateProductInput) (backend.Product, error) {
+	if a.svc == nil {
+		return backend.Product{}, errors.New("backend service unavailable")
+	}
+	return a.svc.UpdateProduct(input)
+}
+
+func (a *App) DeleteProduct(productID string) error {
+	if a.svc == nil {
+		return errors.New("backend service unavailable")
+	}
+	return a.svc.DeleteProduct(productID)
 }
 
 func (a *App) ListProducts() ([]backend.Product, error) {
